@@ -6,37 +6,46 @@ Ship the smallest useful thing. Get it in people's hands.
 
 ### Scope
 
-- [ ] Toggle chat split (right side vertical split)
-- [ ] Input area with submit on `<CR>`
-- [ ] Send message, receive streamed response
-- [ ] One provider: Ollama (easiest to test, no API key)
-- [ ] `@buffer` context (send current buffer content)
-- [ ] `@selection` context (send visual selection)
-- [ ] Code block detection in chat buffer
-- [ ] `gY` — yank code block under cursor
-- [ ] Basic markdown rendering:
-  - Headers rendered with highlight groups
-  - Code blocks with treesitter syntax highlighting (language injection)
-  - Bold text with concealed delimiters
-- [ ] Token usage display in message metadata
-- [ ] Cancel generation with `<C-c>`
-- [ ] `/clear` — clear conversation
-- [ ] `/model` — switch model via `vim.ui.select`
-- [ ] `/help` — list commands
-- [ ] Winbar with provider, model, message count
-- [ ] Error display inline in chat buffer
-- [ ] `setup()` with configuration validation
-- [ ] Vim help file (`:help ai-chat`)
+- [x] Toggle chat split (right side vertical split)
+- [x] Input area with submit on `<CR>`
+- [x] Send message, receive streamed response
+- [x] One provider: Ollama (easiest to test, no API key)
+- [x] `@buffer` context (send current buffer content)
+- [x] `@selection` context (send visual selection)
+- [x] Code block detection in chat buffer
+- [x] `gY` — yank code block under cursor
+- Basic markdown rendering:
+  - [x] Headers rendered with highlight groups
+  - [x] Code blocks with treesitter syntax highlighting (language injection)
+  - [x] Bold text with concealed delimiters
+- [x] Token usage display in message metadata
+- [x] Cancel generation with `<C-c>`
+- [x] `/clear` — clear conversation
+- [x] `/model` — switch model via `vim.ui.select`
+- [x] `/help` — list commands
+- [x] Winbar with provider, model, message count
+- [x] Error display inline in chat buffer
+- [x] `setup()` with configuration validation
+- [x] Vim help file (`:help ai-chat`)
 
-### Non-Goals for v0.1
+**Ahead of schedule — pulled forward from v0.2 and v0.3:**
 
-- No persistence / history
-- No diff-based code application
-- No cloud providers
-- No telescope integration
-- No cost tracking
-- No slash command completion
-- No thinking mode
+- [x] Diff-based code application (`ga` opens diff split) *(was v0.2)*
+- [x] Conversation persistence — save/load as JSON *(was v0.2)*
+- [x] `/save`, `/load`, `/new` slash commands *(was v0.2)*
+- [x] `@diagnostics` context — LSP diagnostics *(was v0.2)*
+- [x] `@diff` context — git diff *(was v0.2)*
+- [x] `@file:path` context — arbitrary file inclusion *(was v0.3)*
+- [x] Cost tracking and display in winbar — session-level *(was v0.2)*
+- [x] `:AiChatCosts` — session cost summary *(was v0.2)*
+- [x] Message navigation (`]]`, `[[`) *(was v0.2)*
+- [x] Code block navigation (`]c`, `[c`) *(was v0.2)*
+- [x] Quick actions: `<leader>ae` (explain), `<leader>af` (fix) *(was v0.2)*
+- [x] Audit log (`:AiChatLog`) *(was v0.2)*
+- [x] `gO` — open code block in new split buffer *(was v0.3)*
+- [x] Input history recall (`<Up>`/`<Down>`) *(was v0.3)*
+- [x] `:AiChatConfig` — show resolved config *(was v0.3)*
+- [x] `:AiChatKeys` — show keybinding reference *(was v0.3)*
 
 ### Success Criteria
 
@@ -55,19 +64,21 @@ A user with Ollama installed can:
 
 - [ ] Anthropic provider (direct API)
 - [ ] OpenAI-compatible provider
-- [ ] Diff-based code application (`ga` → opens diff split)
-- [ ] Conversation persistence (save/load as JSON)
-- [ ] `/save`, `/load`, `/new` commands
-- [ ] `@diagnostics` context (LSP diagnostics)
-- [ ] `@diff` context (git diff)
+- [x] ~~Diff-based code application (`ga` → opens diff split)~~ *done in v0.1*
+- [x] ~~Conversation persistence (save/load as JSON)~~ *done in v0.1*
+- [x] ~~`/save`, `/load`, `/new` commands~~ *done in v0.1*
+- [x] ~~`@diagnostics` context (LSP diagnostics)~~ *done in v0.1*
+- [x] ~~`@diff` context (git diff)~~ *done in v0.1*
 - [ ] Thinking mode toggle (`/thinking on|off`)
-- [ ] Cost tracking and display in winbar
-- [ ] `:AiChatCosts` — session/daily/monthly summary
-- [ ] Message navigation (`]]`, `[[`)
-- [ ] Code block navigation (`]c`, `[c`)
-- [ ] Quick actions: `<leader>ae` (explain), `<leader>af` (fix)
+- [x] ~~Cost tracking and display in winbar~~ *done in v0.1*
+- [ ] `:AiChatCosts` — daily/monthly cost aggregation (session-level done in v0.1)
+- [x] ~~Message navigation (`]]`, `[[`)~~ *done in v0.1*
+- [x] ~~Code block navigation (`]c`, `[c`)~~ *done in v0.1*
+- [x] ~~Quick actions: `<leader>ae` (explain), `<leader>af` (fix)~~ *done in v0.1*
 - [ ] Auto-retry on rate limits with exponential backoff
-- [ ] Audit log (`:AiChatLog`)
+- [x] ~~Audit log (`:AiChatLog`)~~ *done in v0.1*
+- [x] ~~Treesitter language injection for code blocks~~ *done in v0.1*
+- [x] ~~Bold/italic markdown concealment~~ *done in v0.1*
 
 ### Success Criteria
 
@@ -88,12 +99,12 @@ A user with an Anthropic API key can:
 - [ ] nvim-cmp / blink.cmp integration for `@context` completion
 - [ ] Slash commands: `/explain`, `/fix`, `/test`, `/review`
 - [ ] Slash command completion (ghost text as you type `/`)
-- [ ] `@file:path` context (arbitrary file inclusion)
+- [x] ~~`@file:path` context (arbitrary file inclusion)~~ *done in v0.1*
 - [ ] Multi-file context selection
-- [ ] `gO` — open code block in new split buffer
-- [ ] Input history recall (`<Up>`/`<Down>`)
-- [ ] `:AiChatConfig` — show resolved config
-- [ ] `:AiChatKeys` — show keybinding reference
+- [x] ~~`gO` — open code block in new split buffer~~ *done in v0.1*
+- [x] ~~Input history recall (`<Up>`/`<Down>`)~~ *done in v0.1*
+- [x] ~~`:AiChatConfig` — show resolved config~~ *done in v0.1*
+- [x] ~~`:AiChatKeys` — show keybinding reference~~ *done in v0.1*
 - [ ] Project-local config (`.ai-chat.lua` in project root)
 - [ ] System prompt customization (global and per-project)
 

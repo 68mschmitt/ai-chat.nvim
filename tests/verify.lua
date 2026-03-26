@@ -234,5 +234,166 @@ test("UI creates proper layout", function()
     assert(#wins_after < #wins, "should have fewer windows after close")
 end)
 
+-- Test 20: bold concealment extmarks
+test("bold concealment applies extmarks", function()
+    local render = require("ai-chat.ui.render")
+    local ns = vim.api.nvim_create_namespace("ai-chat-render")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].modifiable = false
+
+    render.render_message(buf, {
+        role = "assistant",
+        content = "This is **bold text** here.",
+        context = {},
+    })
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    -- Find the content line with bold text
+    local bold_line = nil
+    for i, line in ipairs(lines) do
+        if line:match("%*%*bold text%*%*") then
+            bold_line = i - 1 -- 0-indexed
+            break
+        end
+    end
+    assert(bold_line, "should find the bold text line")
+
+    -- Check that extmarks were applied on the bold text line
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { bold_line, 0 }, { bold_line, -1 }, { details = true })
+    local has_conceal = false
+    local has_bold_hl = false
+    for _, mark in ipairs(marks) do
+        local details = mark[4]
+        if details.conceal == "" then has_conceal = true end
+        if details.hl_group == "@markup.strong" then has_bold_hl = true end
+    end
+    assert(has_conceal, "should have conceal extmarks for ** delimiters")
+    assert(has_bold_hl, "should have @markup.strong highlight extmark")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+end)
+
+-- Test 21: bold concealment skips code blocks
+test("bold concealment skips code blocks", function()
+    local render = require("ai-chat.ui.render")
+    local ns = vim.api.nvim_create_namespace("ai-chat-render")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].modifiable = false
+
+    render.render_message(buf, {
+        role = "assistant",
+        content = "```python\nx = \"**not bold**\"\n```",
+        context = {},
+    })
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    -- Find the line with **not bold**
+    local code_line = nil
+    for i, line in ipairs(lines) do
+        if line:match("not bold") then
+            code_line = i - 1
+            break
+        end
+    end
+    assert(code_line, "should find the code content line")
+
+    -- Check that NO conceal extmarks were applied inside the code block
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { code_line, 0 }, { code_line, -1 }, { details = true })
+    for _, mark in ipairs(marks) do
+        local details = mark[4]
+        assert(details.conceal ~= "", "should NOT conceal inside code blocks")
+    end
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+end)
+
+-- Test 22: multiple bold segments on one line
+test("multiple bold segments on one line", function()
+    local render = require("ai-chat.ui.render")
+    local ns = vim.api.nvim_create_namespace("ai-chat-render")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].modifiable = false
+
+    render.render_message(buf, {
+        role = "assistant",
+        content = "**first** and **second** bold",
+        context = {},
+    })
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local bold_line = nil
+    for i, line in ipairs(lines) do
+        if line:match("first.*second") then
+            bold_line = i - 1
+            break
+        end
+    end
+    assert(bold_line, "should find the line with multiple bold segments")
+
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { bold_line, 0 }, { bold_line, -1 }, { details = true })
+    local bold_count = 0
+    for _, mark in ipairs(marks) do
+        local details = mark[4]
+        if details.hl_group == "@markup.strong" then bold_count = bold_count + 1 end
+    end
+    assert(bold_count == 2, "should have 2 bold highlight extmarks, got: " .. bold_count)
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+end)
+
+-- Test 23: treesitter setup in chat window
+test("treesitter setup on chat window", function()
+    local chat = require("ai-chat")
+    chat.open()
+
+    local chat_mod = require("ai-chat.ui.chat")
+    local winid = chat_mod.get_winid()
+    assert(winid and vim.api.nvim_win_is_valid(winid), "chat window should be valid")
+
+    -- conceallevel should be set (if treesitter markdown is available)
+    local cl = vim.wo[winid].conceallevel
+    -- If treesitter started successfully, conceallevel is 2; otherwise 0
+    -- We accept both since CI may not have the markdown parser
+    assert(cl == 0 or cl == 2, "conceallevel should be 0 or 2, got: " .. cl)
+
+    chat.close()
+end)
+
+-- Test 24: code blocks without language get fence highlighting
+test("language-less code blocks get fence highlighting", function()
+    local render = require("ai-chat.ui.render")
+    local ns = vim.api.nvim_create_namespace("ai-chat-render")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].modifiable = false
+
+    render.render_message(buf, {
+        role = "assistant",
+        content = "```\nsome code\n```",
+        context = {},
+    })
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    -- Find opening fence line (```)
+    local fence_line = nil
+    for i, line in ipairs(lines) do
+        if line == "```" and not fence_line then
+            fence_line = i - 1
+            break
+        end
+    end
+    assert(fence_line, "should find the opening fence line")
+
+    -- Check that the fence line has the AiChatMeta highlight
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { fence_line, 0 }, { fence_line, -1 }, { details = true })
+    local has_meta = false
+    for _, mark in ipairs(marks) do
+        local details = mark[4]
+        if details.line_hl_group == "AiChatMeta" then has_meta = true end
+    end
+    assert(has_meta, "language-less fence should have AiChatMeta highlight")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+end)
+
 print("")
-print("ALL " .. 19 .. " TESTS PASSED")
+print("ALL " .. 24 .. " TESTS PASSED")

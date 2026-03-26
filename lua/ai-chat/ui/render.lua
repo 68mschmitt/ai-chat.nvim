@@ -291,8 +291,10 @@ function M.get_code_block_at_cursor(bufnr, winid)
     return nil
 end
 
---- Apply syntax highlighting to code blocks in a range of lines.
---- Uses extmarks to apply highlight groups to fenced code block regions.
+--- Apply markup styling to a range of lines.
+--- Highlights code block fences, conceals bold text delimiters, and
+--- applies bold highlighting. Treesitter handles language-specific syntax
+--- highlighting inside code blocks via markdown injection queries when available.
 ---@param bufnr number
 ---@param from_line number  Start line (0-indexed)
 ---@param to_line number    End line (0-indexed, exclusive)
@@ -303,13 +305,15 @@ function M._highlight_code_blocks(bufnr, from_line, to_line)
     for i, line in ipairs(lines) do
         local abs_line = from_line + i - 1
         if not in_block then
-            local lang = line:match("^```(%w+)")
-            if lang then
+            if line:match("^```") then
                 in_block = true
                 -- Dim the fence line
                 pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, abs_line, 0, {
                     line_hl_group = "AiChatMeta",
                 })
+            else
+                -- Conceal **bold** delimiters outside code blocks
+                M._conceal_bold(bufnr, abs_line, line)
             end
         else
             if line:match("^```%s*$") then
@@ -320,11 +324,38 @@ function M._highlight_code_blocks(bufnr, from_line, to_line)
             end
         end
     end
+end
 
-    -- Treesitter injection handles actual language-specific highlighting
-    -- for the aichat filetype if treesitter is available.
-    -- This is a graceful degradation: without treesitter, code blocks
-    -- are still readable, just without language-specific colors.
+--- Conceal **bold** delimiters on a single line using extmarks.
+--- Hides the ** markers and applies bold highlighting to the content between them.
+---@param bufnr number
+---@param line_nr number  0-indexed line number
+---@param text string     Line content
+function M._conceal_bold(bufnr, line_nr, text)
+    local pos = 1
+    while pos <= #text do
+        local s, e = text:find("%*%*(.-)%*%*", pos)
+        if not s then break end
+        -- Only process if there's actual content between the delimiters
+        if e - s > 3 then
+            -- Conceal opening **
+            pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, line_nr, s - 1, {
+                end_col = s + 1,
+                conceal = "",
+            })
+            -- Apply bold highlight to content
+            pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, line_nr, s + 1, {
+                end_col = e - 2,
+                hl_group = "@markup.strong",
+            })
+            -- Conceal closing **
+            pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, line_nr, e - 2, {
+                end_col = e,
+                conceal = "",
+            })
+        end
+        pos = e + 1
+    end
 end
 
 return M

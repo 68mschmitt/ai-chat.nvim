@@ -44,6 +44,9 @@ function M.create(width, position)
     vim.wo[winid].list = false
     vim.wo[winid].winfixwidth = true
 
+    -- Enable treesitter markdown highlighting for code blocks and bold text
+    M._setup_treesitter(bufnr, winid)
+
     -- Set up buffer-local keymaps
     M._setup_keymaps(bufnr)
 
@@ -236,6 +239,19 @@ function M._open_code_block()
     else
         vim.notify("[ai-chat] No code block under cursor", vim.log.levels.WARN)
     end
+end
+
+--- Set up treesitter highlighting for markdown content.
+--- Provides language-specific syntax highlighting in fenced code blocks
+--- via injection, and enables concealment for bold/italic delimiters.
+---@param bufnr number
+---@param winid number
+function M._setup_treesitter(bufnr, winid)
+    local ok = pcall(vim.treesitter.start, bufnr, "markdown")
+    if not ok then return end
+    -- Enable concealment so bold/italic delimiters are hidden
+    vim.wo[winid].conceallevel = 2
+    vim.wo[winid].concealcursor = "n"
 end
 
 return M
