@@ -37,6 +37,18 @@ function M.estimate(provider, model, usage)
         return 0
     end
 
+    -- 1. Try models.dev registry (most current pricing)
+    local reg_ok, registry = pcall(require, "ai-chat.models")
+    if reg_ok then
+        local reg_pricing = registry.get_pricing(provider, model)
+        if reg_pricing then
+            local input_cost = (usage.input_tokens / 1000000) * reg_pricing.input
+            local output_cost = (usage.output_tokens / 1000000) * reg_pricing.output
+            return input_cost + output_cost
+        end
+    end
+
+    -- 2. Fall back to hardcoded pricing table
     local provider_pricing = pricing[provider]
     if not provider_pricing then
         return 0

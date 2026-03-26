@@ -119,6 +119,71 @@ function M.resolve(opts)
     return resolved
 end
 
+--- Allowed keys for per-project config overrides.
+--- Only these fields can be set from .ai-chat.lua — keybindings, UI, log,
+--- and history are user preferences, not project properties.
+local project_allowed_keys = {
+    "system_prompt",
+    "default_provider",
+    "default_model",
+}
+
+--- Load and apply per-project config from .ai-chat.lua in the current
+--- working directory. Called after resolve() during setup, and can be
+--- re-called on /clear or project directory change.
+---
+--- The file must return a table. Only allowed keys and providers.* are applied.
+--- Uses dofile() (not require) so edits are picked up without restart.
+---@return boolean loaded  Whether a project config was found and applied
+function M.load_project_config()
+    if not resolved then
+        return false
+    end
+
+    local project_file = vim.fn.getcwd() .. "/.ai-chat.lua"
+    if vim.fn.filereadable(project_file) ~= 1 then
+        return false
+    end
+
+    local ok, project = pcall(dofile, project_file)
+    if not ok or type(project) ~= "table" then
+        vim.notify("[ai-chat] Error loading .ai-chat.lua: " .. tostring(project), vim.log.levels.WARN)
+        return false
+    end
+
+    -- Apply allowed top-level keys
+    for _, key in ipairs(project_allowed_keys) do
+        if project[key] ~= nil then
+            if key == "system_prompt" then
+                resolved.chat.system_prompt = project[key]
+            else
+                resolved[key] = project[key]
+            end
+        end
+    end
+
+    -- Deep merge chat.temperature if provided
+    if project.temperature ~= nil then
+        resolved.chat.temperature = project.temperature
+    end
+
+    -- Deep merge provider-specific config (project may configure a specific provider)
+    if project.providers and type(project.providers) == "table" then
+        for pname, pconfig in pairs(project.providers) do
+            if type(pconfig) == "table" then
+                resolved.providers[pname] = vim.tbl_deep_extend(
+                    "force",
+                    resolved.providers[pname] or {},
+                    pconfig
+                )
+            end
+        end
+    end
+
+    vim.notify("[ai-chat] Loaded project config from .ai-chat.lua", vim.log.levels.INFO)
+    return true
+end
+
 --- Get the currently resolved config.
 --- Returns the resolved config after setup(), or defaults before setup().
 ---@return AiChatConfig

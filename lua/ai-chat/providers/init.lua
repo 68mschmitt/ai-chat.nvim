@@ -24,7 +24,7 @@ function M.get(name)
     return provider
 end
 
---- Check if a provider exists (without loading it).
+--- Check if a provider exists (without caching it permanently).
 ---@param name string
 ---@return boolean
 function M.exists(name)
@@ -32,9 +32,9 @@ function M.exists(name)
         return true
     end
     local mod_name = "ai-chat.providers." .. name
-    -- Check if the module file exists without loading and caching it
-    local found = package.searchpath(mod_name, package.path)
-    return found ~= nil
+    -- Try to load via require (respects neovim's rtp, not just package.path)
+    local ok = pcall(require, mod_name)
+    return ok
 end
 
 --- List all available provider names.

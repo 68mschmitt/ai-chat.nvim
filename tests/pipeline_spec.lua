@@ -293,21 +293,16 @@ describe("pipeline integration", function()
             assert.is_false(result_ok)
         end)
 
-        it("bedrock preflight uses aws CLI check", function()
+        it("bedrock preflight fails without bearer token", function()
             local result_ok = nil
-            local old_exec = vim.fn.executable
-            vim.fn.executable = function(cmd)
-                if cmd == "aws" then
-                    return 0
-                end
-                return old_exec(cmd)
-            end
+            local old_token = vim.env.AWS_BEARER_TOKEN_BEDROCK
+            vim.env.AWS_BEARER_TOKEN_BEDROCK = nil
 
             require("ai-chat.providers.bedrock").preflight({}, function(ok, err)
                 result_ok = ok
             end)
 
-            vim.fn.executable = old_exec
+            vim.env.AWS_BEARER_TOKEN_BEDROCK = old_token
             assert.is_false(result_ok)
         end)
 

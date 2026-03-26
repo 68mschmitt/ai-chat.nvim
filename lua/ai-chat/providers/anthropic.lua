@@ -20,12 +20,18 @@ end
 ---@param config table
 ---@param callback fun(models: string[])
 function M.list_models(config, callback)
-    -- Anthropic doesn't have a models list endpoint; return known models
-    callback({
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-3-5-haiku-20241022",
-    })
+    local registry = require("ai-chat.models")
+    local ids = registry.get_model_ids("anthropic")
+    if #ids > 0 then
+        callback(ids)
+    else
+        -- Fallback if models.dev data not yet available
+        callback({
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-20250514",
+            "claude-3-5-haiku-20241022",
+        })
+    end
 end
 
 --- Async preflight check. Verifies the API key is set.

@@ -68,8 +68,26 @@ M.commands.load = function(args, state)
     require("ai-chat").history()
 end
 
---- /thinking [on|off] — Toggle or set extended thinking mode.
+--- /thinking [on|off|show|hide] — Toggle thinking mode or visibility.
+--- on/off: toggle whether thinking is requested from the provider.
+--- show/hide: toggle whether thinking blocks are visible in the chat buffer.
 M.commands.thinking = function(args, state)
+    if args == "show" or args == "hide" then
+        local visible = args == "show"
+        require("ai-chat.config").set("chat.show_thinking", visible)
+        -- Toggle visibility on the current chat buffer
+        local chat = require("ai-chat.ui.chat")
+        local bufnr = chat.get_bufnr()
+        if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+            require("ai-chat.ui.thinking").set_visible(bufnr, visible)
+        end
+        vim.notify(
+            "[ai-chat] Thinking blocks: " .. (visible and "visible" or "hidden"),
+            vim.log.levels.INFO
+        )
+        return
+    end
+
     local value
     if args == "on" then
         value = true
@@ -83,6 +101,84 @@ M.commands.thinking = function(args, state)
     end
 
     require("ai-chat").set_thinking(value)
+end
+
+-- ─── Prompt Templates ────────────────────────────────────────────────
+-- These commands prepend a prompt template to the user's optional extra
+-- instructions, then send through the normal pipeline. Context (@buffer,
+-- @selection, etc.) is collected from the user's message as usual.
+
+--- Build a template command: collects context, prepends prompt, sends.
+---@param template string  The base prompt template
+---@param default_context string  Default context tag if user provides none (e.g., "@buffer")
+---@param args string  User args after the command
+local function send_template(template, default_context, args)
+    local text = template
+    if args and args ~= "" then
+        -- Check if user provided context tags; if not, prepend default
+        if not args:match("^@") then
+            text = default_context .. " " .. text .. "\n\n" .. args
+        else
+            text = text .. "\n\n" .. args
+        end
+    else
+        text = default_context .. " " .. text
+    end
+    require("ai-chat").send(text)
+end
+
+--- /explain — Explain the attached code.
+M.commands.explain = function(args, state)
+    send_template(
+        "Explain the attached code. Focus on:\n"
+            .. "1. What it does (behavior, not line-by-line narration)\n"
+            .. "2. Why it's structured this way (design intent)\n"
+            .. "3. Non-obvious details (edge cases, implicit assumptions, gotchas)\n\n"
+            .. "Be concise. Skip obvious things.",
+        "@buffer",
+        args
+    )
+end
+
+--- /fix — Identify problems and provide a fix.
+M.commands.fix = function(args, state)
+    send_template(
+        "The attached code has a problem. Identify the issue and provide a fix.\n\n"
+            .. "1. State the problem in one sentence\n"
+            .. "2. Show the corrected code in a fenced code block\n"
+            .. "3. Explain what was wrong and why the fix works\n\n"
+            .. "If there are multiple issues, address the most critical one first.",
+        "@buffer @diagnostics",
+        args
+    )
+end
+
+--- /test — Generate tests for the attached code.
+M.commands.test = function(args, state)
+    send_template(
+        "Write tests for the attached code.\n\n"
+            .. "- Match the testing style already present in the project if visible from context\n"
+            .. "- Cover: happy path, edge cases, error conditions\n"
+            .. "- Each test should have a clear name describing what it verifies\n"
+            .. "- Use fenced code blocks with the appropriate language",
+        "@buffer",
+        args
+    )
+end
+
+--- /review — Code review the attached code.
+M.commands.review = function(args, state)
+    send_template(
+        "Review the attached code. Provide feedback on:\n\n"
+            .. "1. Bugs or correctness issues (highest priority)\n"
+            .. "2. Edge cases that aren't handled\n"
+            .. "3. Readability or maintainability concerns\n"
+            .. "4. Performance issues (only if significant)\n\n"
+            .. "For each issue, quote the relevant code and suggest a specific improvement. "
+            .. "Skip praise — focus on what needs to change.",
+        "@diff",
+        args
+    )
 end
 
 --- /debug — Show the last request payload for transparency/debugging.
@@ -168,7 +264,11 @@ M.commands.help = function(args, state)
         "  /new              Save and start new conversation",
         "  /model [name]     Switch model",
         "  /provider [name]  Switch provider",
-        "  /thinking [on|off] Toggle extended thinking mode",
+        "  /thinking [on|off|show|hide] Toggle thinking mode or visibility",
+        "  /explain [text]   Explain attached code (@buffer default)",
+        "  /fix [text]       Fix problems in attached code (@buffer @diagnostics)",
+        "  /test [text]      Generate tests for attached code (@buffer default)",
+        "  /review [text]    Code review (@diff default)",
         "  /context          Show available context types",
         "  /save [name]      Save conversation",
         "  /load             Browse saved conversations",

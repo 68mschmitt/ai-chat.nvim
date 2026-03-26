@@ -1,12 +1,21 @@
 --- ai-chat.nvim — Thinking block processing
---- Handles detection, styling, folding, and stripping of <thinking>/<think>
---- blocks in streamed AI responses. Extracted from render.lua.
+--- Handles detection, styling, folding, and visibility toggling of
+--- <thinking>/<think> blocks in streamed AI responses.
+---
+--- Key design: thinking block lines are NEVER deleted from the buffer.
+--- Visibility is controlled via folds — "hide" closes folds, "show" opens
+--- them. This allows toggling without re-rendering the conversation.
 
 local M = {}
 
 --- Thinking tag patterns (both <think> and <thinking> variants).
 M.open_pats = { "^<think>%s*$", "^<thinking>%s*$" }
 M.close_pats = { "^</think>%s*$", "^</thinking>%s*$" }
+
+--- Stored thinking block ranges per buffer for show/hide toggling.
+--- Keyed by bufnr → list of { open, close } (0-indexed line numbers).
+---@type table<number, { open: number, close: number }[]>
+local block_ranges = {}
 
 --- Check if a line matches a thinking open tag.
 ---@param line string
@@ -68,11 +77,8 @@ function M.find_blocks(bufnr, from_line, to_line)
 end
 
 --- Process thinking blocks in a range of lines.
---- Finds <thinking>...</thinking> and <think>...</think> blocks, applies
---- dimmed highlighting, conceals the tags, creates manual folds, and sets
---- fold text to show a summary with token count.
----
---- If show_thinking is false, strips thinking blocks entirely.
+--- Always applies styling and creates folds. If show_thinking is false,
+--- the folds are created closed (hiding the content). Lines are never deleted.
 ---@param bufnr number
 ---@param ns number          Extmark namespace ID
 ---@param from_line number   Start line (0-indexed)
@@ -92,25 +98,21 @@ function M.process(bufnr, ns, from_line, to_line)
         return
     end
 
-    if not show_thinking then
-        M._strip_blocks(bufnr, blocks)
-        return
-    end
-
+    -- Always style blocks (dim, conceal tags, create folds)
     M._style_blocks(bufnr, ns, blocks)
-end
 
---- Strip thinking blocks entirely (remove lines).
----@param bufnr number
----@param blocks { open: number, close: number }[]
-function M._strip_blocks(bufnr, blocks)
-    vim.bo[bufnr].modifiable = true
-    -- Process in reverse to keep line numbers stable
-    for i = #blocks, 1, -1 do
-        local block = blocks[i]
-        vim.api.nvim_buf_set_lines(bufnr, block.open, block.close + 1, false, {})
+    -- Store ranges for later show/hide toggling
+    if not block_ranges[bufnr] then
+        block_ranges[bufnr] = {}
     end
-    vim.bo[bufnr].modifiable = false
+    for _, block in ipairs(blocks) do
+        table.insert(block_ranges[bufnr], block)
+    end
+
+    -- If show_thinking is false, close the folds to hide content
+    if not show_thinking then
+        M._close_folds(bufnr, blocks)
+    end
 end
 
 --- Apply visual treatment to thinking blocks (dim, conceal tags, fold).
@@ -147,6 +149,7 @@ function M._style_blocks(bufnr, ns, blocks)
         })
 
         -- Create a fold over the thinking block content
+        -- The fold is created but left OPEN — close_folds() handles hiding
         for _, win in ipairs(vim.api.nvim_list_wins()) do
             if vim.api.nvim_win_get_buf(win) == bufnr then
                 vim.api.nvim_win_call(win, function()
@@ -163,6 +166,61 @@ function M._style_blocks(bufnr, ns, blocks)
             end
         end
     end
+end
+
+--- Close folds for the given thinking blocks (hides them).
+---@param bufnr number
+---@param blocks { open: number, close: number }[]
+function M._close_folds(bufnr, blocks)
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == bufnr then
+            vim.api.nvim_win_call(win, function()
+                for _, block in ipairs(blocks) do
+                    pcall(vim.cmd, (block.open + 1) .. "foldclose")
+                end
+            end)
+            break
+        end
+    end
+end
+
+--- Open folds for the given thinking blocks (shows them).
+---@param bufnr number
+---@param blocks { open: number, close: number }[]
+function M._open_folds(bufnr, blocks)
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == bufnr then
+            vim.api.nvim_win_call(win, function()
+                for _, block in ipairs(blocks) do
+                    pcall(vim.cmd, (block.open + 1) .. "foldopen")
+                end
+            end)
+            break
+        end
+    end
+end
+
+--- Toggle thinking block visibility for a buffer.
+--- Shows or hides all thinking blocks by opening/closing folds.
+---@param bufnr number
+---@param visible boolean  true = show thinking blocks, false = hide them
+function M.set_visible(bufnr, visible)
+    local ranges = block_ranges[bufnr]
+    if not ranges or #ranges == 0 then
+        return
+    end
+
+    if visible then
+        M._open_folds(bufnr, ranges)
+    else
+        M._close_folds(bufnr, ranges)
+    end
+end
+
+--- Clear stored block ranges for a buffer (called on conversation clear).
+---@param bufnr number
+function M.clear_ranges(bufnr)
+    block_ranges[bufnr] = nil
 end
 
 --- Apply real-time dimming to a single line during streaming.

@@ -69,11 +69,17 @@ function M.setup(opts)
     math.randomseed(os.time() + (vim.uv or vim.loop).hrtime())
     require("ai-chat.keymaps").setup(resolved.keys)
 
+    -- Load per-project config (.ai-chat.lua in cwd) — applies allowed overrides
+    config.load_project_config()
+
     if resolved.history.enabled then
         require("ai-chat.history").init(resolved.history)
     end
 
     require("ai-chat.util.log").init(resolved.log)
+
+    -- Initialize model registry (loads from disk cache, kicks off async refresh)
+    require("ai-chat.models").init()
     M._setup_code_buffer_tracking()
     get_conversation().new(resolved.default_provider, resolved.default_model)
 
@@ -232,18 +238,36 @@ function M.set_model(model_name)
         vim.notify("[ai-chat] Model: " .. model_name, vim.log.levels.INFO)
     else
         local config = require("ai-chat.config").get()
-        local provider = require("ai-chat.providers").get(conv.get_provider())
-        provider.list_models(config.providers[conv.get_provider()] or {}, function(models)
-            if #models == 0 then
-                vim.notify("[ai-chat] No models available from " .. conv.get_provider(), vim.log.levels.WARN)
-                return
+        local provider_name = conv.get_provider()
+        local registry = require("ai-chat.models")
+        local picker_items = registry.get_picker_items(provider_name)
+
+        if #picker_items > 0 then
+            -- Rich picker with display names, context windows, and pricing
+            local display_list = {}
+            for _, item in ipairs(picker_items) do
+                table.insert(display_list, item.display)
             end
-            vim.ui.select(models, { prompt = "Select model:" }, function(choice)
-                if choice then
-                    M.set_model(choice)
+            vim.ui.select(display_list, { prompt = "Select model:" }, function(_, idx)
+                if idx then
+                    M.set_model(picker_items[idx].id)
                 end
             end)
-        end)
+        else
+            -- Fallback to provider's own list_models (e.g., Ollama local, OpenAI API)
+            local provider = require("ai-chat.providers").get(provider_name)
+            provider.list_models(config.providers[provider_name] or {}, function(models)
+                if #models == 0 then
+                    vim.notify("[ai-chat] No models available from " .. provider_name, vim.log.levels.WARN)
+                    return
+                end
+                vim.ui.select(models, { prompt = "Select model:" }, function(choice)
+                    if choice then
+                        M.set_model(choice)
+                    end
+                end)
+            end)
+        end
     end
 end
 

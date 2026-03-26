@@ -90,6 +90,18 @@ function M.send(text, opts, ui_state, deps)
         clean_text = text
     end
 
+    -- Context collection feedback — single combined vim.notify
+    if #context > 0 then
+        local parts = {}
+        for _, ctx in ipairs(context) do
+            table.insert(
+                parts,
+                string.format("@%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0)
+            )
+        end
+        vim.notify("[ai-chat] " .. table.concat(parts, " | "), vim.log.levels.INFO)
+    end
+
     -- Build and append user message
     local message = {
         role = "user",

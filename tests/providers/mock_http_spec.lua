@@ -166,9 +166,10 @@ describe("provider streaming (mocked)", function()
                 return error_received ~= nil
             end)
 
-            -- Network errors should be retryable
+            -- Network errors should be retryable (via centralized error classification)
             if error_received then
-                assert.is_true(error_received.retryable)
+                local errors = require("ai-chat.errors")
+                assert.is_true(errors.is_retryable(error_received))
             end
         end)
 

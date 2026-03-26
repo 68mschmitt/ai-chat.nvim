@@ -177,11 +177,21 @@ end
 ---@param model string
 ---@return number
 function M._get_context_window(provider, model)
-    -- 1. Check per-model first
+    -- 1. Check models.dev registry (most up-to-date source)
+    if model then
+        local reg_ok, registry = pcall(require, "ai-chat.models")
+        if reg_ok then
+            local ctx = registry.get_context_window(provider, model)
+            if ctx then
+                return ctx
+            end
+        end
+    end
+    -- 2. Check hardcoded per-model table
     if model and model_context_windows[model] then
         return model_context_windows[model]
     end
-    -- 2. Check user config override (allows configuring custom models)
+    -- 3. Check user config override (allows configuring custom models)
     local ok, cfg = pcall(function()
         return require("ai-chat.config").get()
     end)
@@ -191,7 +201,7 @@ function M._get_context_window(provider, model)
             return provider_cfg.context_window
         end
     end
-    -- 3. Fall back to provider default
+    -- 4. Fall back to provider default
     return provider_context_windows[provider] or 4096
 end
 
