@@ -72,6 +72,21 @@ configuration, costs nothing, and sends no data anywhere.
 - **Context is explicit.** Every message shows what context was attached.
   No hidden system prompts beyond a minimal instruction prefix.
 
+### Context Window Management
+
+Long conversations will exceed the model's context window. The plugin handles
+this transparently:
+
+**Truncation strategy: oldest messages first, system prompt always preserved.**
+No summarization — that requires an extra API call, adds latency, costs money,
+and introduces a black-box transformation of the user's conversation. The user
+should know exactly what the AI sees. Summarization violates the transparency
+principle.
+
+The winbar shows when truncation is active: `msgs: 24 (ctx: 12)`. A one-time
+`vim.notify` fires when truncation first kicks in for a conversation. The user
+is never surprised about what the AI does or doesn't remember.
+
 ### Code Application Model
 
 When the AI suggests code, the user can apply it via a diff-based workflow:
@@ -84,6 +99,108 @@ When the AI suggests code, the user can apply it via a diff-based workflow:
 This reuses neovim's built-in diff mode. No custom diff rendering, no
 reinventing the wheel.
 
+### Agent-Initiated Changes: The Proposal Queue
+
+The chat-then-apply model above is *reactive* — the user asks, the AI answers,
+the user decides what to apply. The proposal queue extends this to support
+*proactive* changes — where the AI suggests edits to specific files as part of
+completing a task.
+
+**Core constraint: nothing changes until the user says so.** The AI can propose
+changes, but the buffer is never modified without explicit user consent. This
+preserves the trust model: the default is "nothing happens unless you act,"
+not "everything happens unless you object."
+
+The design uses a three-layer system that maps entirely to native neovim
+paradigms:
+
+**Layer 1 — Signs + Virtual Text (passive notification).**
+When the AI proposes a change, a sign appears in the gutter and right-aligned
+virtual text shows a summary. The buffer is untouched. The user's undo tree is
+unaffected. This is the same pattern as LSP diagnostics — visible, familiar,
+non-intrusive.
+
+**Layer 2 — Quickfix List (multi-file awareness).**
+Pending proposals across files populate a standard quickfix list. Users navigate
+with `:cnext`/`:cprev` or `]q`/`[q`. Each entry shows the AI's one-line intent
+so the user sees *why* before *what*. No custom panels — quickfix is native.
+Files not yet open are still listed; an autocommand defers sign placement until
+the buffer is loaded.
+
+**Layer 3 — Diff Review (reuse existing `ui/diff.lua`).**
+When the user is ready to review, they get the same diff split used for
+chat-based code application. Left = original, right = proposed. Same keymaps,
+same workflow. The only difference is the source of the code block — from the
+proposal queue instead of the chat buffer.
+
+**Notification:** When proposals arrive, a single `vim.notify` informs the user.
+No modal dialogs, no floating windows, no focus stealing. The user finishes
+their thought and reviews when ready.
+
+**Undo integration:** Each accepted proposal is a single atomic undo entry
+(one `nvim_buf_set_lines` call). `u` reverts the entire AI change as one
+operation. No fragmented undo trees.
+
+**Conflict handling:** Proposals track a target line range. If the user edits
+within that range, the proposal is marked expired. No merge algorithms, no
+three-way diffs. Simple invalidation via `nvim_buf_attach`.
+
+See `UX.md` for proposal keybindings and `ARCHITECTURE.md` for the data model
+and module structure.
+
+### Inline Annotations: AI-Guided Code Comprehension
+
+Proposals place actionable changes in the buffer. Annotations extend the same
+overlay infrastructure for a different purpose: placing **non-actionable
+information** inline with the user's code to accelerate learning and
+comprehension.
+
+The user asks the AI to explain a file or selection. Instead of a wall of text
+in the chat buffer that the user must mentally cross-reference with their code,
+the AI's explanations appear as inline annotations — pinned to the specific
+lines they describe. The explanation is *at* the code, not *about* the code
+from a distance.
+
+**Why this fits the plugin's philosophy:**
+- Annotations don't modify the buffer. They're pure information overlay. The
+  trust model is trivially satisfied — there's nothing to consent to.
+- They use extmarks in a dedicated namespace, not `vim.diagnostic`. This avoids
+  polluting the diagnostic ecosystem with non-diagnostic data and prevents
+  confusion with real LSP errors and warnings.
+- The user invokes annotations explicitly via `/annotate`. The AI never
+  annotates without being asked.
+
+**Implementation primitive: `nvim_buf_set_extmark` with `virt_lines`.**
+Annotations are collapsed by default (sign + short `virt_text` summary) and
+expand on demand (`virt_lines` below the annotated line for the full
+explanation). This avoids visual clutter while keeping information one keypress
+away. Extmarks track line movement automatically — if the user inserts lines
+above an annotation, the annotation moves with its target.
+
+**Response parsing:** Annotations require the AI to return structured output
+with line references (e.g., `[annotation: line 34] explanation text`). This is
+a design choice — the system prompt for `/annotate` instructs the AI to
+reference specific line numbers and produce concise, targeted explanations. The
+parser uses a multi-strategy fallback chain (exact format → relaxed brackets →
+markdown headers) to tolerate LLM formatting inconsistency. The full AI
+response is always shown in the chat buffer (transparency); the plugin parses
+it to place the inline extmarks. Parsing failures degrade gracefully — the
+chat response is still readable, the annotations just don't appear inline.
+
+**Ephemerality:** Annotations are ephemeral — they live for the session and are
+not persisted to disk. Closing and reopening a file clears them. The
+conversation history preserves the AI's response; annotations are a display
+convenience, not a data layer.
+
+**Relationship to proposals:** Annotations share the overlay infrastructure
+built for v0.4 (sign placement, virtual text, buffer-local keymaps, namespace
+cleanup, `BufRead` deferral). The genuinely new pieces are `virt_lines`
+rendering and the expand/collapse toggle. Shared plumbing is extracted into
+`ui/overlays.lua`.
+
+See `UX.md` for annotation interaction details and `ARCHITECTURE.md` for the
+annotation data model.
+
 ## What This Plugin Is Not
 
 - **Not an inline completion engine.** Use copilot.lua or cmp-ai for that.
@@ -92,8 +209,10 @@ reinventing the wheel.
   electron-style panels.
 - **Not a RAG engine.** No local embedding, no vector databases. If you need
   project-wide context, you send files explicitly.
-- **Not an agent framework.** The AI responds to messages. It doesn't run
-  shell commands, modify files autonomously, or "think in loops."
+- **Not an autonomous agent.** The AI can *propose* changes, but it never
+  modifies buffers, runs shell commands, or acts without explicit user approval.
+  Proposals are visible, reviewable, and dismissible. The user always holds
+  the final decision.
 
 ## Key References
 

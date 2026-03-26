@@ -62,8 +62,26 @@ A user with Ollama installed can:
 
 ### Scope
 
+**Structural (do first):**
+
+- [ ] Extract `conversation.lua` from `init.lua` (conversation state, message
+  building, system prompt, context window truncation)
+- [ ] Extract `stream.lua` from `init.lua` (stream orchestration, cancellation)
+- [ ] Test infrastructure: plenary.nvim runner, `minimal_init.lua`, Makefile,
+  first 5 test files (tokens, context parsing, config, slash commands, costs)
+- [ ] Buffer lifecycle autocommands (`WinClosed`, `BufWipeout` for chat/input)
+- [ ] `:checkhealth ai-chat` integration (neovim version, curl, provider
+  reachability, treesitter markdown, history/log directory writable)
+
+**Features:**
+
 - [ ] Anthropic provider (direct API)
 - [ ] OpenAI-compatible provider
+- [ ] Context window management with oldest-first truncation
+  - Per-provider default context window (Ollama 4K, Claude 200K, GPT-4o 128K)
+  - Winbar shows `msgs: N (ctx: M)` when messages are truncated
+  - One-time `vim.notify` when truncation first kicks in
+- [ ] First-run Ollama detection (async check on first send, once per session)
 - [x] ~~Diff-based code application (`ga` → opens diff split)~~ *done in v0.1*
 - [x] ~~Conversation persistence (save/load as JSON)~~ *done in v0.1*
 - [x] ~~`/save`, `/load`, `/new` commands~~ *done in v0.1*
@@ -96,7 +114,6 @@ A user with an Anthropic API key can:
 
 - [ ] Amazon Bedrock provider
 - [ ] Telescope integration (history browser, model picker)
-- [ ] nvim-cmp / blink.cmp integration for `@context` completion
 - [ ] Slash commands: `/explain`, `/fix`, `/test`, `/review`
 - [ ] Slash command completion (ghost text as you type `/`)
 - [x] ~~`@file:path` context (arbitrary file inclusion)~~ *done in v0.1*
@@ -118,17 +135,142 @@ A user can:
 
 ---
 
-## v1.0 — Stable Release (Target: 4 weeks after v0.3)
+## v0.4 — Proposal Queue: Agent-Initiated Changes (Target: 3 weeks after v0.3)
+
+The proposal queue enables the AI to *propose* code changes that the user
+reviews and applies at their own pace. This is the foundation for agentic
+workflows while preserving the user-consent model. See `DESIGN.md` for the
+full design rationale.
+
+### Scope
+
+- [ ] Proposal data model (`proposals/init.lua`)
+  - Proposal struct: id, file, description, original/proposed lines, range,
+    status (pending/accepted/rejected/expired), conversation reference
+  - Ephemeral state — proposals live for the session, not persisted to disk
+- [ ] Sign + virtual text placement for pending proposals
+  - `AiChatProposalSign` sign in gutter on first line of affected range
+  - Right-aligned virtual text: `"ai-chat: N pending change(s)"` in `AiChatMeta`
+  - No buffer modification — undo tree is untouched
+- [ ] Quickfix list integration for multi-file proposal navigation
+  - Populate via `vim.fn.setqflist()` with AI intent descriptions
+  - Standard `:cnext`/`:cprev`/`]q`/`[q` navigation
+- [ ] Buffer attachment for conflict detection
+  - Track proposal target range via `nvim_buf_attach` `on_lines` callback
+  - Auto-expire proposals when user edits overlap the target range
+  - Dimmed sign variant + `"ai-chat: proposal outdated"` for expired proposals
+- [ ] Proposal review via existing diff split (`ui/diff.lua`)
+  - `gp` on a proposal sign opens the same diff view used for chat code blocks
+  - Source is the proposal queue instead of `render.get_code_block_at_cursor()`
+- [ ] Proposal keymaps
+  - `<leader>ar` — open proposal quickfix list
+  - `<leader>an` — jump to next pending proposal (across files)
+  - `gp` — preview/diff proposal at cursor (in code buffers with pending sign)
+  - `ga` — accept proposal at cursor (in code buffers with pending sign)
+  - `gx` — reject/dismiss proposal at cursor
+  - `<leader>aR` — accept all pending proposals (with `vim.fn.confirm` prompt)
+- [ ] Autocommand for deferred sign placement (files not yet open)
+  - Register `BufRead` autocmd for proposal target paths
+  - Place signs when the file is eventually opened
+- [ ] User events: `AiChatProposalCreated`, `AiChatProposalAccepted`,
+  `AiChatProposalRejected`, `AiChatProposalExpired`
+- [ ] Highlight groups: `AiChatProposalSign`, `AiChatProposalExpired`
+- [ ] Single `vim.notify` on proposal arrival — no modal dialogs, no focus stealing
+
+### Success Criteria
+
+A user can:
+1. Receive AI-proposed code changes without any buffer being modified
+2. See pending changes at a glance via gutter signs and virtual text
+3. Navigate proposals across multiple files via the quickfix list
+4. Review each proposal in a familiar diff split, applying or rejecting hunks
+5. Accept or reject proposals individually, or accept all with confirmation
+6. Undo an accepted proposal as a single `u` operation
+7. Continue editing without interruption — expired proposals are silently marked
+
+### Estimated Scope
+
+~400-500 lines of new code. No new dependencies. No new UI paradigms. Every
+interaction maps to something neovim users already know (signs, quickfix, diff).
+
+---
+
+## v0.5 — Inline Annotations: AI-Guided Code Comprehension (Target: 3 weeks after v0.4)
+
+Inline annotations let the AI place explanatory notes directly on lines of
+code, collapsing the distance between explanation and source. This builds on
+the v0.4 overlay infrastructure (signs, extmarks, buffer-local keymaps) for a
+non-actionable, learning-focused use case. See `DESIGN.md` for the design
+rationale.
+
+### Scope
+
+- [ ] Extract shared overlay utilities from `ui/proposals.lua` into `ui/overlays.lua`
+  - Sign placement, virtual text, namespace management, cleanup, `BufRead` deferral
+  - Both proposals and annotations depend on this shared layer
+- [ ] Annotation data model (`annotations/init.lua`)
+  - Annotation struct: id, file, line, summary, detail, expanded (bool),
+    conversation reference
+  - Simpler than proposals — no original/proposed lines, no conflict detection,
+    no accept/reject lifecycle
+  - Ephemeral state — annotations live for the session, not persisted to disk
+- [ ] `/annotate` slash command
+  - `/annotate @buffer <prompt>` — annotate current buffer
+  - `/annotate @selection <prompt>` — annotate visual selection
+  - `/annotate @file:path <prompt>` — annotate a specific file
+  - `/annotate clear` — remove all annotations from current buffer
+  - `/annotate clear all` — remove all annotations from all buffers
+  - Full AI response shown in chat buffer (transparency); structured annotations
+    parsed and placed inline
+- [ ] Response parsing for structured annotation output
+  - AI returns `[annotation: line N]` markers in its response
+  - Plugin parses these into annotation entries with line, summary, detail
+- [ ] Extmark placement with two display states
+  - **Collapsed (default):** sign + right-aligned `virt_text` summary
+  - **Expanded:** sign + `virt_text` + `virt_lines` below the annotated line
+    with the full explanation text
+  - `virt_lines` are the key differentiator from proposals — multi-line content
+    rendered inline without modifying the buffer
+- [ ] Annotation keymaps (buffer-local, active when annotations are present)
+  - `]a` / `[a` — jump between annotations
+  - `za` — toggle expand/collapse annotation at cursor
+  - `gx` — dismiss individual annotation (reuses proposal dismiss key)
+  - `<leader>ag` — quick action: pre-fill `/annotate @buffer ` in chat input
+  - `<leader>aA` — expand/collapse all annotations in current buffer
+  - `<leader>ax` — clear all annotations from current buffer
+- [ ] Highlight groups: `AiChatAnnotationSign`, `AiChatAnnotationText`,
+  `AiChatAnnotationDetail`
+- [ ] User events: `AiChatAnnotationCreated`, `AiChatAnnotationCleared`
+- [ ] Single `vim.notify` on annotation placement
+
+### Success Criteria
+
+A user can:
+1. Open an unfamiliar file and run `/annotate @buffer Walk me through this`
+2. See annotation signs in the gutter on key lines
+3. Navigate between annotations with `]a`/`[a`
+4. Expand any annotation with `za` to read the full inline explanation
+5. Dismiss individual annotations with `gx` or clear all with `/annotate clear`
+6. See the full AI response in the chat buffer alongside the inline annotations
+
+### Estimated Scope
+
+~400-500 lines of new code, plus ~100 lines of shared utilities extracted from
+`ui/proposals.lua` into `ui/overlays.lua`. No new dependencies.
+
+---
+
+## v1.0 — Stable Release (Target: 4 weeks after v0.5)
+
+Note: v1.0 target shifted from "4 weeks after v0.4" to account for v0.5.
 
 ### Scope
 
 - [ ] All four providers stable and tested
-- [ ] Comprehensive test suite (unit + integration)
+- [ ] Comprehensive test suite (unit + integration, building on v0.2 foundation)
 - [ ] Polished vim help docs
 - [ ] GitHub Actions CI (neovim stable + nightly)
-- [ ] Conversation branching (fork from any message)
 - [ ] Export conversation to markdown file
-- [ ] Image support for multimodal models
 - [ ] Performance profiling and optimization
 - [ ] Public API stability guarantee
 - [ ] User event hooks fully documented
@@ -147,17 +289,22 @@ A user can:
 
 These are ideas, not promises. They'll be built if users ask for them.
 
+- **Conversation branching** — fork from any message. Requires tree data
+  structure for conversations, branch selection UI, and history format changes.
+  Significant complexity — only justified by user demand.
+- **Image support** — multimodal message handling. Requires terminal image
+  protocol support (kitty/sixel), base64 encoding, provider-specific format
+  changes. Scope TBD.
+- **nvim-cmp / blink.cmp source** — completion source for `@context` tags.
+  Only if the built-in ghost text completion proves insufficient.
 - **Project-level RAG** — optional binary companion for embedding and search
 - **Shared conversations** — export/import for team use
 - **Custom agents** — user-defined personas with specialized system prompts
-- **Tool use** — let the AI call neovim functions (with explicit user approval)
-- **Voice input** — speech-to-text for hands-free queries
+- **Extended tool use** — let the AI call neovim functions beyond proposals
+  (with explicit user approval at every step). The v0.4 proposal queue is the
+  foundation: any future tool use must follow the same consent model.
 - **Conversation templates** — reusable prompt patterns
 - **Provider-specific features** — artifacts (Claude), function calling (OpenAI)
-
----
-
-## Principles for Roadmap Management
 
 1. **Each version must be usable on its own.** No "foundation" releases that
    deliver zero user value.
