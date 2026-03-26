@@ -596,19 +596,22 @@ Retry policy for transient errors:
 
 ## Testing Strategy
 
-**Framework:** plenary.nvim busted-style test runner via `nvim --headless`.
-Tests run in a real neovim instance so `vim.api.*` calls work. Zero build step.
+**Framework:** Custom minimal test harness (`tests/harness.lua`) providing
+busted-style `describe`/`it`/`before_each`/`after_each` and assert wrappers.
+Zero external dependencies. Tests run in a real neovim instance via
+`nvim --headless` so `vim.api.*` calls work. Zero build step.
 
 **Test runner (Makefile at project root):**
 
 ```makefile
 test:
 	nvim --headless --noplugin -u tests/minimal_init.lua \
-		-c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
+		-c "luafile tests/runner.lua"
 
 test-file:
 	nvim --headless --noplugin -u tests/minimal_init.lua \
-		-c "PlenaryBustedFile $(FILE)"
+		-c "lua _G._test_file = '$(FILE)'" \
+		-c "luafile tests/runner.lua"
 ```
 
 **Test categories:**
@@ -637,5 +640,4 @@ test-file:
 
 **CI:** GitHub Actions with neovim stable + nightly. Set up immediately (not
 deferred to v1.0) — catches regressions early. Runs `make test` and
-`stylua --check` on push and PR. plenary.nvim is cloned automatically by
-`tests/minimal_init.lua`.
+`stylua --check` on push and PR.

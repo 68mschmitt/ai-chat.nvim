@@ -32,7 +32,8 @@ build steps.
 - No platform-specific binaries, no `:AiChatBuild` step
 
 **Zero dependencies.** HTTP is handled by `vim.system()` calling `curl` directly
-with streaming stdout callbacks. No plenary, no external Lua libraries.
+with streaming stdout callbacks. No external Lua libraries. Even the test
+harness is a self-contained ~80-line Lua file with no third-party dependencies.
 
 ### Vertical Split — Not Floating Windows
 

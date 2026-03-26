@@ -1,31 +1,12 @@
--- Minimal init for running plenary.busted tests.
+-- Minimal init for running tests.
 -- Usage:
 --   make test
 --   nvim --headless --noplugin -u tests/minimal_init.lua \
---     -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
+--     -c "luafile tests/runner.lua"
 
 -- Set up runtime path
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h")
 vim.opt.rtp:prepend(root)
-
--- Bootstrap plenary if not present
-local plenary_path = root .. "/.deps/plenary.nvim"
-if vim.fn.isdirectory(plenary_path) == 0 then
-    print("Cloning plenary.nvim...")
-    vim.fn.system({
-        "git",
-        "clone",
-        "--depth",
-        "1",
-        "https://github.com/nvim-lua/plenary.nvim",
-        plenary_path,
-    })
-end
-vim.opt.rtp:prepend(plenary_path)
-
--- With --noplugin, neovim skips sourcing plugin/ directories from rtp.
--- Explicitly source plenary's plugin file so PlenaryBustedDirectory is registered.
-vim.cmd("runtime plugin/plenary.vim")
 
 -- Minimal settings
 vim.o.swapfile = false

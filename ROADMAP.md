@@ -67,7 +67,7 @@ A user with Ollama installed can:
 - [x] Extract `conversation.lua` from `init.lua` (conversation state, message
   building, system prompt, context window truncation)
 - [x] Extract `stream.lua` from `init.lua` (stream orchestration, cancellation)
-- [x] Test infrastructure: plenary.nvim runner, `minimal_init.lua`, Makefile,
+- [x] Test infrastructure: custom harness, `minimal_init.lua`, Makefile,
   first 6 test files (tokens, context parsing, config, slash commands, costs,
   conversation)
 - [x] Buffer lifecycle autocommands (`WinClosed`, `BufWipeout` for chat/input)
