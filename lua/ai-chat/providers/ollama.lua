@@ -169,4 +169,26 @@ function M.chat(messages, opts, callbacks)
     end
 end
 
+--- Async check if Ollama is running. Called once per session on first send.
+--- Notifies the user if Ollama is unreachable so they can start it or switch provider.
+---@param provider_config? table  Provider config (uses defaults if nil)
+function M.check_reachable(provider_config)
+    local host = (provider_config or {}).host or "http://localhost:11434"
+    vim.system(
+        { "curl", "-s", "--connect-timeout", "2", host .. "/api/tags" },
+        {},
+        function(result)
+            if result.code ~= 0 then
+                vim.schedule(function()
+                    vim.notify(
+                        "[ai-chat] Ollama not detected at " .. host
+                            .. ". Start it with `ollama serve` or switch provider with /provider.",
+                        vim.log.levels.WARN
+                    )
+                end)
+            end
+        end
+    )
+end
+
 return M

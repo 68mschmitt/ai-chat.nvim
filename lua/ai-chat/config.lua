@@ -1,7 +1,13 @@
 --- ai-chat.nvim — Configuration
 --- Schema definition, defaults, validation, and resolution.
+--- Owns the resolved config state. init.lua calls config.resolve() during
+--- setup(). All other modules call config.get() to read the resolved config.
 
 local M = {}
+
+-- The resolved config after setup(). nil until resolve() is called.
+---@type AiChatConfig?
+local resolved = nil
 
 ---@class AiChatConfig
 M.defaults = {
@@ -77,8 +83,8 @@ M.defaults = {
         cancel = "<C-c>",
         next_message = "]]",
         prev_message = "[[",
-        next_code_block = "]c",
-        prev_code_block = "[c",
+        next_code_block = "]b",
+        prev_code_block = "[b",
         yank_code_block = "gY",
         apply_code_block = "ga",
         open_code_block = "gO",
@@ -106,22 +112,35 @@ M.defaults = {
     },
 }
 
---- Deep merge user options with defaults.
+--- Deep merge user options with defaults and store the result.
+--- Called once during setup(). Returns the resolved config.
 ---@param opts table  User-provided options
 ---@return AiChatConfig
 function M.resolve(opts)
-    return vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
+    resolved = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
+    return resolved
 end
 
 --- Get the currently resolved config.
---- After setup(), delegates to init.lua's state. Before setup, returns defaults.
+--- Returns the resolved config after setup(), or defaults before setup().
 ---@return AiChatConfig
 function M.get()
-    local ok, init = pcall(require, "ai-chat")
-    if ok and init._get_config then
-        return init._get_config()
+    return resolved or M.defaults
+end
+
+--- Update a config value at runtime (e.g., toggling thinking mode).
+--- Only works after setup() has been called.
+---@param path string  Dot-separated path (e.g., "chat.thinking")
+---@param value any    New value
+function M.set(path, value)
+    if not resolved then return end
+    local keys = vim.split(path, ".", { plain = true })
+    local target = resolved
+    for i = 1, #keys - 1 do
+        target = target[keys[i]]
+        if type(target) ~= "table" then return end
     end
-    return M.defaults
+    target[keys[#keys]] = value
 end
 
 --- Validate a resolved config.

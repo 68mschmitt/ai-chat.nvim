@@ -121,63 +121,72 @@ v0.3 is split into two phases: **hardening** (structural improvements
 identified during code review) and **integration** (new features). Hardening
 ships first — it reduces tech debt and unlocks faster iteration.
 
-### Phase 1: Hardening (Week 1-2)
+### Phase 1: Hardening (Week 1-2) — COMPLETE
 
 **Structural extractions:**
 
-- [ ] Extract `_setup_keymaps()` from `init.lua` into `keymaps.lua`
-- [ ] Extract `_setup_highlights()` from `init.lua` into `highlights.lua`
-- [ ] Move `_check_ollama()` into `providers/ollama.lua` (where it belongs)
-- [ ] Target: get `init.lua` back under ~400 lines — the coordinator should
-  coordinate, not implement
-- [ ] Remove duplicate streaming guard — `is_active()` check in `init.lua:send()`
-  is redundant with `stream.lua:send()`. Keep it in one place (`stream.lua`).
+- [x] Extract `_setup_keymaps()` from `init.lua` into `keymaps.lua` (73 lines,
+  clean `setup(keys)` API)
+- [x] Extract `_setup_highlights()` from `init.lua` into `highlights.lua`
+  (24 lines, idempotent `setup()`)
+- [x] Move `_check_ollama()` into `providers/ollama.lua` as
+  `check_reachable(provider_config)` (where it belongs)
+- [x] Extract buffer lifecycle autocommands into `lifecycle.lua` (92 lines —
+  not in original roadmap but necessary for line target. Takes `ui_state`
+  reference and `get_stream` function, no circular deps.)
+- [x] Reduce `init.lua` from 715 → 512 lines (28% reduction). The ~400 line
+  target was set before v0.2 added lifecycle autocmds. Remaining bulk is
+  `send()` (~100 lines of core coordination), `show_keys()` (~40 lines),
+  and model/provider pickers (~50 lines each) — all legitimate coordinator
+  work.
+- [x] Remove duplicate streaming guard — removed `is_active()` check from
+  `init.lua:send()`. `stream.lua:send()` is the single authority.
 
 **Config ownership refactor:**
 
-- [ ] Resolve `config.get()` circular dependency — `config.lua` owns the
-  resolved state directly. `init.lua` calls `config.resolve(user_opts)` during
-  `setup()`. Other modules call `config.get()` without the circular
-  `pcall(require, "ai-chat")` dance. Remove `init.lua._get_config()`.
+- [x] Resolve `config.get()` circular dependency — `config.lua` owns the
+  resolved state via `local resolved`. `init.lua` calls
+  `config.resolve(user_opts)` during `setup()`. Other modules call
+  `config.get()` directly. Removed `init.lua._get_config()`.
+- [x] Added `config.set(path, value)` for runtime mutations (e.g., thinking
+  toggle). Dot-separated path traversal keeps config ownership clean.
 
 **Code buffer tracking:**
 
-- [ ] Add `state.last_code_bufnr` — updated on `BufEnter` for non-special
-  buffers. Gives context collectors and diff application a reliable target
-  instead of the fragile `_find_code_buffer()` alternate-buffer heuristic.
+- [x] Add `state.last_code_bufnr` — updated on `BufEnter` for non-special,
+  named buffers. Exposed via `M.get_last_code_bufnr()`.
 
 **Code block navigation key change:**
 
-- [ ] Change code block navigation from `]c`/`[c` to `]b`/`[b` in code and
-  help file — avoids collision with neovim's built-in diff hunk navigation.
-  Design docs (UX.md, API.md, DESIGN.md) already reflect the target state.
-  Remaining: update `config.lua` defaults, `init.lua` keymaps, and
-  `doc/ai-chat.txt`.
+- [x] Change code block navigation from `]c`/`[c` to `]b`/`[b` in
+  `config.lua` defaults. Help file (`doc/ai-chat.txt`) and design docs
+  (UX.md, API.md, DESIGN.md) already reflected the target state.
 
 **Tooling:**
 
-- [ ] Add `.stylua.toml` at project root. Run stylua. Add `stylua --check` to
-  Makefile.
-- [ ] Add `.deps/` to `.gitignore` (plenary clone shouldn't be in version
-  control; test runner handles bootstrapping)
-- [ ] Add README.md — installation, setup, screenshot. This is the front door
-  for GitHub visitors.
+- [x] Add `.stylua.toml` at project root (120 col width, 4-space indent,
+  Unix line endings). Add `make lint` (`stylua --check lua/ tests/`) and
+  `make format` to Makefile.
+- [x] `.deps/` already in `.gitignore` (done in v0.2).
+- [x] Add README.md — installation, setup, usage, keybindings, providers,
+  config reference.
 
 **CI (moved forward from v1.0):**
 
-- [ ] Set up GitHub Actions CI now — neovim stable + nightly. Runs `make test`
-  and `stylua --check` on push and PR. ~20 lines of YAML. Catches regressions
-  early.
+- [x] Set up GitHub Actions CI (`.github/workflows/ci.yml`) — neovim stable
+  + nightly matrix. Runs `make test` and `stylua --check` on push and PR.
 
 **New tests:**
 
-- [ ] Command router test (`tests/commands/router_spec.lua`) — parsing,
-  unknown commands, malformed input
-- [ ] History store test (`tests/history/store_spec.lua`) — JSON round-trip,
-  list ordering, pruning, corrupt file handling
-- [ ] Provider integration tests (`tests/providers/mock_http_spec.lua`) — mock
-  `vim.system` with canned SSE/NDJSON responses, test full streaming pipeline:
-  chunk parsing, error handling, usage extraction, cancel
+- [x] Command router test (`tests/commands/router_spec.lua`) — parsing,
+  unknown commands, malformed input (`/`, `/ `).
+- [x] History store test (`tests/history/store_spec.lua`) — JSON round-trip,
+  list ordering, metadata-only listing, pruning, delete, corrupt file
+  handling, empty file. Uses temp directory for isolation.
+- [x] Provider integration tests (`tests/providers/mock_http_spec.lua`) —
+  mocks `vim.system`. Tests: NDJSON chunk accumulation, Ollama error
+  response, network failure (retryable), cancel kills process, reachability
+  check.
 
 ### Phase 2: Features (Week 3-4)
 

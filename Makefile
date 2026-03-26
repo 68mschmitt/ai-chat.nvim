@@ -1,4 +1,4 @@
-.PHONY: test test-file lint clean
+.PHONY: test test-file lint format clean
 
 MINIMAL_INIT := tests/minimal_init.lua
 
@@ -16,9 +16,13 @@ test-file:
 	nvim --headless --noplugin -u $(MINIMAL_INIT) \
 		-c "PlenaryBustedFile $(FILE)"
 
-# Lint (when stylua/luacheck are configured)
+# Check formatting (CI uses this)
 lint:
-	@echo "No linter configured yet (planned for v1.0)"
+	stylua --check lua/ tests/
+
+# Auto-format
+format:
+	stylua lua/ tests/
 
 # Remove test dependencies
 clean:
