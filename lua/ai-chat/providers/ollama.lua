@@ -110,11 +110,16 @@ function M.chat(messages, opts, callbacks)
                         -- Ollama returned an error (e.g., model not found)
                         if not errored then
                             errored = true
+                            local err_msg = chunk.error
+                            local err_code = "server"
+                            -- Classify: model not found is fatal, not retryable
+                            if err_msg:match("model") and err_msg:match("not found") then
+                                err_code = "model_not_found"
+                            end
                             vim.schedule(function()
                                 callbacks.on_error({
-                                    code = "server",
-                                    message = "Ollama error: " .. chunk.error,
-                                    retryable = false,
+                                    code = err_code,
+                                    message = "Ollama error: " .. err_msg,
                                 })
                             end)
                         end
@@ -173,23 +178,37 @@ function M.chat(messages, opts, callbacks)
     end
 end
 
---- Async check if Ollama is running. Called once per session on first send.
---- Notifies the user if Ollama is unreachable so they can start it or switch provider.
+--- Async preflight check. Called once per session before first send.
+--- Verifies the Ollama server is reachable and notifies the user if not.
 ---@param provider_config? table  Provider config (uses defaults if nil)
-function M.check_reachable(provider_config)
+---@param callback? fun(ok: boolean, err?: string)
+function M.preflight(provider_config, callback)
     local host = (provider_config or {}).host or "http://localhost:11434"
     vim.system({ "curl", "-s", "--connect-timeout", "2", host .. "/api/tags" }, {}, function(result)
-        if result.code ~= 0 then
-            vim.schedule(function()
-                vim.notify(
-                    "[ai-chat] Ollama not detected at "
-                        .. host
-                        .. ". Start it with `ollama serve` or switch provider with /provider.",
-                    vim.log.levels.WARN
-                )
-            end)
-        end
+        vim.schedule(function()
+            if result.code ~= 0 then
+                local msg = "[ai-chat] Ollama not detected at "
+                    .. host
+                    .. ". Start it with `ollama serve` or switch provider with /provider."
+                vim.notify(msg, vim.log.levels.WARN)
+                if callback then
+                    callback(false, msg)
+                end
+            else
+                if callback then
+                    callback(true)
+                end
+            end
+        end)
     end)
+end
+
+--- Async check if Ollama is running. Called once per session on first send.
+--- Notifies the user if Ollama is unreachable so they can start it or switch provider.
+--- @deprecated Use preflight() instead
+---@param provider_config? table  Provider config (uses defaults if nil)
+function M.check_reachable(provider_config)
+    M.preflight(provider_config)
 end
 
 return M

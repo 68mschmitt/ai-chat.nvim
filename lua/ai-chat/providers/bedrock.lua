@@ -31,6 +31,23 @@ function M.list_models(config, callback)
     })
 end
 
+--- Async preflight check. Verifies the AWS CLI is available.
+---@param provider_config? table
+---@param callback? fun(ok: boolean, err?: string)
+function M.preflight(provider_config, callback)
+    if vim.fn.executable("aws") ~= 1 then
+        local msg = "[ai-chat] AWS CLI not found. Install it for Bedrock support."
+        vim.notify(msg, vim.log.levels.WARN)
+        if callback then
+            callback(false, msg)
+        end
+    else
+        if callback then
+            callback(true)
+        end
+    end
+end
+
 --- Send a chat request with streaming.
 --- Not yet implemented — returns a graceful error via the callback interface.
 ---@param messages AiChatMessage[]

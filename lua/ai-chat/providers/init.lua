@@ -56,4 +56,19 @@ function M.validate(name, config)
     return true
 end
 
+--- Run a provider's preflight check. Called once per session before first send.
+--- Each provider implements its own check (e.g., Ollama: is server running?
+--- Anthropic: is API key set? Bedrock: is AWS CLI available?).
+---@param name string  Provider name
+---@param provider_config? table  Provider-specific config
+---@param callback? fun(ok: boolean, err?: string)
+function M.preflight(name, provider_config, callback)
+    local provider = M.get(name)
+    if provider and provider.preflight then
+        provider.preflight(provider_config, callback)
+    elseif callback then
+        callback(true) -- No preflight defined = assume OK
+    end
+end
+
 return M

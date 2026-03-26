@@ -55,13 +55,6 @@ function M.browse(callback)
         return
     end
 
-    -- Try telescope if available
-    local has_telescope, _ = pcall(require, "telescope")
-    if has_telescope then
-        M._browse_telescope(entries, callback)
-        return
-    end
-
     -- Fallback to vim.ui.select
     local items = {}
     for _, entry in ipairs(entries) do
@@ -98,37 +91,6 @@ function M._generate_name(conversation)
         end
     end
     return "untitled"
-end
-
---- Browse conversations with telescope (if available).
---- Falls back to vim.ui.select until telescope integration is built (v0.3).
----@param entries table[]
----@param callback fun(conversation: AiChatConversation?)
-function M._browse_telescope(entries, callback)
-    -- Telescope integration would go here in v0.3
-    -- For now, fall through to vim.ui.select
-    local items = {}
-    for _, entry in ipairs(entries) do
-        table.insert(
-            items,
-            string.format(
-                "%s — %s (%d messages, %s)",
-                entry.name or "untitled",
-                entry.model or "unknown",
-                entry.message_count or 0,
-                os.date("%Y-%m-%d %H:%M", entry.updated_at or 0)
-            )
-        )
-    end
-
-    vim.ui.select(items, { prompt = "Load conversation:" }, function(_, idx)
-        if idx then
-            local conv = M.load(entries[idx].id)
-            callback(conv)
-        else
-            callback(nil)
-        end
-    end)
 end
 
 return M

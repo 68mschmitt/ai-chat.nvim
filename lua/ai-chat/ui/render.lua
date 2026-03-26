@@ -2,10 +2,13 @@
 --- Renders conversation messages into the chat buffer.
 --- Handles markdown formatting, code block detection, syntax highlighting,
 --- and extmark-based metadata display.
+---
+--- Thinking block processing is delegated to ui/thinking.lua.
 
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("ai-chat-render")
+local thinking = require("ai-chat.ui.thinking")
 
 --- Check if the buffer is "empty" (single empty line from initialization).
 ---@param bufnr number
@@ -75,7 +78,7 @@ function M.render_message(bufnr, message)
     vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, content_lines)
 
     -- Apply syntax highlighting to code blocks and thinking blocks
-    M._process_thinking_blocks(bufnr, start_line, start_line + #content_lines)
+    thinking.process(bufnr, ns, start_line, start_line + #content_lines)
     M._highlight_code_blocks(bufnr, start_line, start_line + #content_lines)
 
     vim.bo[bufnr].modifiable = false
@@ -135,20 +138,6 @@ function M.begin_response(bufnr)
     -- Thinking block state for real-time dimming during streaming
     local in_thinking = false
 
-    --- Check if a line is a thinking tag opener.
-    ---@param line string
-    ---@return boolean
-    local function is_thinking_open(line)
-        return line:match("^<think>%s*$") ~= nil or line:match("^<thinking>%s*$") ~= nil
-    end
-
-    --- Check if a line is a thinking tag closer.
-    ---@param line string
-    ---@return boolean
-    local function is_thinking_close(line)
-        return line:match("^</think>%s*$") ~= nil or line:match("^</thinking>%s*$") ~= nil
-    end
-
     return {
         --- Append a streamed chunk of text.
         ---@param text string
@@ -170,17 +159,15 @@ function M.begin_response(bufnr)
                     vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_text })
 
                     -- Track thinking state and apply real-time dimming
-                    if is_thinking_open(line_text) then
+                    if thinking.is_open_tag(line_text) then
                         in_thinking = true
                     end
 
                     if in_thinking then
-                        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, write_line, 0, {
-                            line_hl_group = "AiChatThinking",
-                        })
+                        thinking.dim_line(bufnr, ns, write_line)
                     end
 
-                    if is_thinking_close(line_text) then
+                    if thinking.is_close_tag(line_text) then
                         in_thinking = false
                     end
 
@@ -253,7 +240,7 @@ function M.begin_response(bufnr)
                 -- Process thinking blocks (fold/collapse) and code blocks (highlight)
                 local content_start = header_line + 1
                 local content_end = vim.api.nvim_buf_line_count(bufnr)
-                M._process_thinking_blocks(bufnr, content_start, content_end)
+                thinking.process(bufnr, ns, content_start, content_end)
                 M._highlight_code_blocks(bufnr, content_start, content_end)
             end)
         end,
@@ -273,7 +260,7 @@ function M.begin_response(bufnr)
                     "  ERROR: " .. (err.message or "Unknown error"),
                 }
 
-                if err.retryable then
+                if require("ai-chat.errors").is_retryable(err) then
                     table.insert(error_lines, "  (retryable)")
                 end
 
@@ -421,146 +408,14 @@ function M._conceal_bold(bufnr, line_nr, text)
     end
 end
 
---- Thinking tag patterns (both <think> and <thinking> variants).
-local thinking_open_pats = { "^<think>%s*$", "^<thinking>%s*$" }
-local thinking_close_pats = { "^</think>%s*$", "^</thinking>%s*$" }
-
---- Custom foldtext for thinking blocks in the chat buffer.
---- Called by neovim's fold rendering via v:lua.
----@return string
-function M.foldtext()
-    local line_count = vim.v.foldend - vim.v.foldstart - 1
-    return " ▶ Thinking (" .. line_count .. " lines) "
+--- Expose the render namespace ID for other modules.
+---@return number
+function M.get_namespace()
+    return ns
 end
 
---- Check if a line matches a thinking open tag.
----@param line string
----@return boolean
-local function is_thinking_open_tag(line)
-    for _, pat in ipairs(thinking_open_pats) do
-        if line:match(pat) then
-            return true
-        end
-    end
-    return false
-end
-
---- Check if a line matches a thinking close tag.
----@param line string
----@return boolean
-local function is_thinking_close_tag(line)
-    for _, pat in ipairs(thinking_close_pats) do
-        if line:match(pat) then
-            return true
-        end
-    end
-    return false
-end
-
---- Process thinking blocks in a range of lines.
---- Finds <thinking>...</thinking> and <think>...</think> blocks, applies
---- dimmed highlighting, conceals the tags, creates manual folds, and sets
---- fold text to show a summary with token count.
----
---- Called from finish() after streaming is complete.
----@param bufnr number
----@param from_line number  Start line (0-indexed)
----@param to_line number    End line (0-indexed, exclusive)
-function M._process_thinking_blocks(bufnr, from_line, to_line)
-    local ok, cfg = pcall(function()
-        return require("ai-chat.config").get()
-    end)
-    local show_thinking = true
-    if ok and cfg and cfg.chat then
-        show_thinking = cfg.chat.show_thinking ~= false
-    end
-    local lines = vim.api.nvim_buf_get_lines(bufnr, from_line, to_line, false)
-
-    -- Find thinking block ranges
-    local blocks = {}
-    local current_open = nil
-
-    for i, line in ipairs(lines) do
-        local abs_line = from_line + i - 1
-        if not current_open then
-            if is_thinking_open_tag(line) then
-                current_open = abs_line
-            end
-        else
-            if is_thinking_close_tag(line) then
-                table.insert(blocks, { open = current_open, close = abs_line })
-                current_open = nil
-            end
-        end
-    end
-
-    if #blocks == 0 then
-        return
-    end
-
-    if not show_thinking then
-        -- Strip thinking blocks entirely (set lines to empty, then they'll
-        -- just be blank lines — acceptable for nomodifiable buffer)
-        vim.bo[bufnr].modifiable = true
-        -- Process in reverse to keep line numbers stable
-        for i = #blocks, 1, -1 do
-            local block = blocks[i]
-            local replacement = {}
-            vim.api.nvim_buf_set_lines(bufnr, block.open, block.close + 1, false, replacement)
-        end
-        vim.bo[bufnr].modifiable = false
-        return
-    end
-
-    -- Apply visual treatment to each thinking block
-    local tokens = require("ai-chat.util.tokens")
-
-    for _, block in ipairs(blocks) do
-        -- Count tokens in the thinking content (lines between open and close tags)
-        local content_lines = vim.api.nvim_buf_get_lines(bufnr, block.open + 1, block.close, false)
-        local content_text = table.concat(content_lines, "\n")
-        local token_count = tokens.estimate(content_text)
-
-        -- Apply dimmed highlight to all lines in the block (including tags)
-        for line_nr = block.open, block.close do
-            pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, line_nr, 0, {
-                line_hl_group = "AiChatThinking",
-            })
-        end
-
-        -- Conceal the opening tag — replace with a styled header
-        local header_text = string.format("▶ Thinking (%d tokens)", token_count)
-        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, block.open, 0, {
-            virt_text = { { header_text, "AiChatThinkingHeader" } },
-            virt_text_pos = "overlay",
-        })
-
-        -- Conceal the closing tag
-        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, block.close, 0, {
-            virt_text = { { "", "AiChatThinking" } },
-            virt_text_pos = "overlay",
-        })
-
-        -- Create a fold over the thinking block content
-        -- (open tag through close tag, inclusive — 1-indexed for fold commands)
-        for _, win in ipairs(vim.api.nvim_list_wins()) do
-            if vim.api.nvim_win_get_buf(win) == bufnr then
-                vim.api.nvim_win_call(win, function()
-                    -- Ensure manual folds are enabled
-                    vim.wo[win].foldmethod = "manual"
-                    vim.wo[win].foldenable = true
-                    vim.wo[win].foldminlines = 0
-                    vim.wo[win].foldtext = "v:lua.require('ai-chat.ui.render').foldtext()"
-
-                    -- Create the fold (1-indexed, inclusive range)
-                    local fold_start = block.open + 1
-                    local fold_end = block.close + 1
-                    pcall(vim.cmd, fold_start .. "," .. fold_end .. "fold")
-                end)
-                break
-            end
-        end
-    end
-end
+--- Keep foldtext available via the old path for backward compatibility.
+--- Delegates to the thinking module.
+M.foldtext = thinking.foldtext
 
 return M

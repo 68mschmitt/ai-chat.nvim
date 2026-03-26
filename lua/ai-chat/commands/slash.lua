@@ -85,6 +85,80 @@ M.commands.thinking = function(args, state)
     require("ai-chat").set_thinking(value)
 end
 
+--- /debug — Show the last request payload for transparency/debugging.
+--- Displays: provider, model, message count, token estimates, context,
+--- truncation info, and the full messages array.
+M.commands.debug = function(args, state)
+    local pipeline = require("ai-chat.pipeline")
+    local last = pipeline.get_last_request()
+
+    if not last or not last.provider_messages then
+        M._render_system_message("No requests sent yet in this session.")
+        return
+    end
+
+    local tokens = require("ai-chat.util.tokens")
+    local lines = {
+        "ai-chat.nvim — Last Request Debug Info",
+        string.rep("-", 50),
+        "",
+        string.format("  Provider:     %s", last.provider or "unknown"),
+        string.format("  Model:        %s", last.model or "unknown"),
+        string.format("  Timestamp:    %s", last.timestamp and os.date("%Y-%m-%d %H:%M:%S", last.timestamp) or "n/a"),
+        string.format("  Messages:     %d", last.provider_messages and #last.provider_messages or 0),
+    }
+
+    -- Options
+    if last.opts then
+        table.insert(lines, string.format("  Temperature:  %s", tostring(last.opts.temperature or "default")))
+        table.insert(lines, string.format("  Max tokens:   %s", tostring(last.opts.max_tokens or "default")))
+        table.insert(lines, string.format("  Thinking:     %s", tostring(last.opts.thinking or false)))
+    end
+
+    -- Truncation
+    if last.truncated then
+        table.insert(lines, string.format("  Truncated:    %d messages dropped", last.truncated))
+    else
+        table.insert(lines, "  Truncated:    no")
+    end
+
+    -- Context
+    if last.context and #last.context > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Context collected:")
+        for _, ctx in ipairs(last.context) do
+            table.insert(
+                lines,
+                string.format("  @%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0)
+            )
+        end
+    end
+
+    -- Messages sent to provider
+    table.insert(lines, "")
+    table.insert(lines, "Messages sent to provider:")
+    table.insert(lines, string.rep("-", 50))
+    for i, msg in ipairs(last.provider_messages) do
+        local token_est = tokens.estimate(msg.content)
+        local preview = msg.content:sub(1, 120):gsub("\n", "\\n")
+        if #msg.content > 120 then
+            preview = preview .. "..."
+        end
+        table.insert(lines, string.format("  [%d] %s (~%d tokens)", i, msg.role, token_est))
+        table.insert(lines, "      " .. preview)
+        table.insert(lines, "")
+    end
+
+    -- Total token estimate
+    local total_tokens = 0
+    for _, msg in ipairs(last.provider_messages) do
+        total_tokens = total_tokens + tokens.estimate(msg.content)
+    end
+    table.insert(lines, string.format("  Total: ~%d tokens (estimated)", total_tokens))
+
+    require("ai-chat.util.ui").show_in_split(lines)
+end
+
 --- /help — List available commands.
 M.commands.help = function(args, state)
     local lines = {
@@ -98,6 +172,7 @@ M.commands.help = function(args, state)
         "  /context          Show available context types",
         "  /save [name]      Save conversation",
         "  /load             Browse saved conversations",
+        "  /debug            Show last request payload (messages, tokens, context)",
         "  /help             Show this help",
     }
 

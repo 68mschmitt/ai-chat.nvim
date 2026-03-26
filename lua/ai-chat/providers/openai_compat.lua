@@ -62,6 +62,24 @@ function M.list_models(config, callback)
     )
 end
 
+--- Async preflight check. Verifies the API key is set.
+---@param provider_config? table
+---@param callback? fun(ok: boolean, err?: string)
+function M.preflight(provider_config, callback)
+    local api_key = (provider_config or {}).api_key or vim.env.OPENAI_API_KEY
+    if not api_key or api_key == "" then
+        local msg = "[ai-chat] OpenAI API key not set. Set OPENAI_API_KEY environment variable."
+        vim.notify(msg, vim.log.levels.WARN)
+        if callback then
+            callback(false, msg)
+        end
+    else
+        if callback then
+            callback(true)
+        end
+    end
+end
+
 --- Send a chat request with streaming.
 ---@param messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
@@ -78,7 +96,6 @@ function M.chat(messages, opts, callbacks)
             callbacks.on_error({
                 code = "auth",
                 message = "No OpenAI API key. Set OPENAI_API_KEY env var.",
-                retryable = false,
             })
         end)
         return function() end
@@ -168,19 +185,22 @@ function M.chat(messages, opts, callbacks)
                                     errored = true
                                     local err_code = "server"
                                     local err_msg = chunk.error.message or "OpenAI API error"
-                                    if err_msg:match("rate limit") then
+                                    if err_msg:match("rate limit") or chunk.error.type == "rate_limit" then
                                         err_code = "rate_limit"
                                     elseif
                                         chunk.error.type == "invalid_api_key"
                                         or chunk.error.code == "invalid_api_key"
                                     then
                                         err_code = "auth"
+                                    elseif chunk.error.code == "model_not_found" then
+                                        err_code = "model_not_found"
+                                    elseif chunk.error.type == "invalid_request_error" then
+                                        err_code = "invalid_request"
                                     end
                                     vim.schedule(function()
                                         callbacks.on_error({
                                             code = err_code,
                                             message = err_msg,
-                                            retryable = err_code == "rate_limit",
                                         })
                                     end)
                                 end
@@ -226,9 +246,9 @@ function M.chat(messages, opts, callbacks)
                         callbacks.on_error({
                             code = err_type == "invalid_api_key" and "auth"
                                 or err_type:match("rate") and "rate_limit"
+                                or err_type == "invalid_request_error" and "invalid_request"
                                 or "server",
                             message = err_data.error.message or "OpenAI API error",
-                            retryable = err_type:match("rate") ~= nil,
                         })
                         return
                     end

@@ -28,6 +28,24 @@ function M.list_models(config, callback)
     })
 end
 
+--- Async preflight check. Verifies the API key is set.
+---@param provider_config? table
+---@param callback? fun(ok: boolean, err?: string)
+function M.preflight(provider_config, callback)
+    local api_key = (provider_config or {}).api_key or vim.env.ANTHROPIC_API_KEY
+    if not api_key or api_key == "" then
+        local msg = "[ai-chat] Anthropic API key not set. Set ANTHROPIC_API_KEY environment variable."
+        vim.notify(msg, vim.log.levels.WARN)
+        if callback then
+            callback(false, msg)
+        end
+    else
+        if callback then
+            callback(true)
+        end
+    end
+end
+
 --- Send a chat request with streaming.
 ---@param messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
@@ -43,7 +61,6 @@ function M.chat(messages, opts, callbacks)
             callbacks.on_error({
                 code = "auth",
                 message = "No Anthropic API key. Set ANTHROPIC_API_KEY env var.",
-                retryable = false,
             })
         end)
         return function() end
@@ -178,12 +195,15 @@ function M.chat(messages, opts, callbacks)
                                     err_code = "rate_limit"
                                 elseif parsed.error and parsed.error.type == "authentication_error" then
                                     err_code = "auth"
+                                elseif parsed.error and parsed.error.type == "invalid_request_error" then
+                                    err_code = "invalid_request"
+                                elseif parsed.error and parsed.error.type == "not_found_error" then
+                                    err_code = "model_not_found"
                                 end
                                 vim.schedule(function()
                                     callbacks.on_error({
                                         code = err_code,
                                         message = err_msg,
-                                        retryable = err_code == "rate_limit",
                                         retry_after = parsed.error and parsed.error.retry_after,
                                     })
                                 end)
@@ -258,9 +278,10 @@ function M.chat(messages, opts, callbacks)
                         callbacks.on_error({
                             code = err_type == "authentication_error" and "auth"
                                 or err_type == "rate_limit_error" and "rate_limit"
+                                or err_type == "invalid_request_error" and "invalid_request"
+                                or err_type == "not_found_error" and "model_not_found"
                                 or "server",
                             message = err_data.error.message or "Anthropic API error",
-                            retryable = err_type == "rate_limit_error",
                         })
                         return
                     end

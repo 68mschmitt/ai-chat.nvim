@@ -419,9 +419,7 @@ local defaults = {
 
     -- Integrations (optional, auto-detected)
     integrations = {
-        telescope = true,       -- Use telescope for pickers if available
         treesitter = true,      -- Use treesitter for code block highlighting
-        cmp = true,             -- Use nvim-cmp for @context completion
     },
 
     -- Logging

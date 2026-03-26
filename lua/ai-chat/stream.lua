@@ -3,8 +3,13 @@
 --- Calls providers and UI (render, spinner) but receives conversation data
 --- as arguments. Calls back to the coordinator via callbacks for
 --- history/costs/winbar updates.
+---
+--- Retry policy: only errors classified as RETRYABLE by errors.lua are
+--- retried. FATAL and UNKNOWN errors fail immediately.
 
 local M = {}
+
+local errors = require("ai-chat.errors")
 
 ---@class AiChatStreamState
 local state = {
@@ -101,8 +106,8 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
         on_error = function(err)
             spinner.stop()
 
-            -- Check if we should auto-retry
-            if err.retryable and state.retry_count < MAX_RETRIES then
+            -- Check if we should auto-retry (centralized classification)
+            if errors.is_retryable(err) and state.retry_count < MAX_RETRIES then
                 state.retry_count = state.retry_count + 1
                 local delay = M._backoff_delay(state.retry_count)
 

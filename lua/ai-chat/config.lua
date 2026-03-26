@@ -98,9 +98,7 @@ M.defaults = {
 
     -- Optional integrations
     integrations = {
-        telescope = true,
         treesitter = true,
-        cmp = true,
     },
 
     -- Logging

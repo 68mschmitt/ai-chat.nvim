@@ -192,9 +192,7 @@ ships first — it reduces tech debt and unlocks faster iteration.
 
 **Providers:**
 
-- [ ] Amazon Bedrock provider (ship before Telescope — completes the core value
-  proposition. Users who need Bedrock are blocked; Telescope users have
-  `vim.ui.select` as a functional fallback)
+- [ ] Amazon Bedrock provider
 
 **Context improvements:**
 
@@ -213,12 +211,6 @@ ships first — it reduces tech debt and unlocks faster iteration.
 - [ ] `/thinking show|hide` — runtime toggle for thinking block visibility
   without restarting. Adds a winbar click target or command-based toggle.
 
-**Integrations (after Bedrock):**
-
-- [ ] Telescope integration (history browser, model picker) — integrate but
-  never depend. Maintaining this boundary requires discipline. `vim.ui.select`
-  remains the fallback.
-
 ### Success Criteria
 
 A user can:
@@ -227,7 +219,6 @@ A user can:
 3. See what context was collected via feedback notifications
 4. Include specific files as context without opening them
 5. Customize the system prompt per project
-6. Browse and search conversation history with Telescope (if installed)
 
 ---
 

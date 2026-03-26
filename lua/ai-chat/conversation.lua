@@ -21,12 +21,37 @@ local state = {
 }
 
 --- Per-provider default context windows (in tokens).
---- Used for truncation when the conversation exceeds the model's limit.
-local context_windows = {
+--- Used as fallback when a model-specific window is not defined.
+local provider_context_windows = {
     ollama = 4096,
     anthropic = 200000,
     bedrock = 200000,
     openai_compat = 128000,
+}
+
+--- Per-model context windows (in tokens).
+--- Takes priority over the provider default. Keyed by model name.
+local model_context_windows = {
+    -- Anthropic
+    ["claude-sonnet-4-20250514"] = 200000,
+    ["claude-opus-4-20250514"] = 200000,
+    ["claude-3-5-haiku-20241022"] = 200000,
+    -- Bedrock (same models, different IDs)
+    ["anthropic.claude-sonnet-4-20250514-v1:0"] = 200000,
+    ["anthropic.claude-opus-4-20250514-v1:0"] = 200000,
+    ["anthropic.claude-3-5-haiku-20241022-v1:0"] = 200000,
+    -- OpenAI
+    ["gpt-4o"] = 128000,
+    ["gpt-4o-mini"] = 128000,
+    ["gpt-4-turbo"] = 128000,
+    -- Ollama common models
+    ["llama3.2"] = 4096,
+    ["llama3.1"] = 128000,
+    ["codellama"] = 16384,
+    ["mistral"] = 32768,
+    ["mixtral"] = 32768,
+    ["deepseek-coder"] = 16384,
+    ["phi3"] = 4096,
 }
 
 --- Create a new conversation with the given provider and model.
@@ -128,8 +153,8 @@ function M.build_provider_messages(config)
         table.insert(messages, { role = msg.role, content = content })
     end
 
-    -- Apply context window truncation
-    local max_tokens = M._get_context_window(state.provider)
+    -- Apply context window truncation (per-model, with provider fallback)
+    local max_tokens = M._get_context_window(state.provider, state.model)
     local truncated = M._truncate_to_budget(messages, max_tokens)
 
     return messages, truncated
@@ -147,11 +172,27 @@ function M._default_system_prompt()
     }, " ")
 end
 
---- Get the context window size for a provider.
+--- Get the context window size for a model, with provider-level fallback.
 ---@param provider string
+---@param model string
 ---@return number
-function M._get_context_window(provider)
-    return context_windows[provider] or 4096
+function M._get_context_window(provider, model)
+    -- 1. Check per-model first
+    if model and model_context_windows[model] then
+        return model_context_windows[model]
+    end
+    -- 2. Check user config override (allows configuring custom models)
+    local ok, cfg = pcall(function()
+        return require("ai-chat.config").get()
+    end)
+    if ok and cfg and cfg.providers and cfg.providers[provider] then
+        local provider_cfg = cfg.providers[provider]
+        if provider_cfg.context_window then
+            return provider_cfg.context_window
+        end
+    end
+    -- 3. Fall back to provider default
+    return provider_context_windows[provider] or 4096
 end
 
 --- Truncate messages to fit within a token budget.

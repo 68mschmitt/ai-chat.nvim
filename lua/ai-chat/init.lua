@@ -21,7 +21,6 @@ local state = {
         is_open = false,
     },
     last_code_bufnr = nil,
-    _ollama_checked = false,
 }
 
 local initialized = false
@@ -29,6 +28,7 @@ local initialized = false
 -- Lazy module references (populated on first use)
 local conversation -- ai-chat.conversation
 local stream -- ai-chat.stream
+local pipeline -- ai-chat.pipeline
 
 local function get_conversation()
     if not conversation then
@@ -42,6 +42,13 @@ local function get_stream()
         stream = require("ai-chat.stream")
     end
     return stream
+end
+
+local function get_pipeline()
+    if not pipeline then
+        pipeline = require("ai-chat.pipeline")
+    end
+    return pipeline
 end
 
 -- ─── Setup ───────────────────────────────────────────────────────────
@@ -134,7 +141,7 @@ end
 
 -- ─── Messaging ───────────────────────────────────────────────────────
 
---- Send a message to the AI.
+--- Send a message to the AI. Delegates orchestration to pipeline.lua.
 ---@param text? string  Message text. If nil, uses current input buffer content.
 ---@param opts? { context?: string[], callback?: fun(response: AiChatResponse) }
 function M.send(text, opts)
@@ -149,109 +156,15 @@ function M.send(text, opts)
         return
     end
 
-    if not state.ui.is_open then
-        M.open()
-    end
-
-    -- Slash commands
-    if text:match("^/") then
-        require("ai-chat.commands").handle(text, {
-            config = config,
-            conversation = get_conversation().get(),
-        })
-        if state.ui.is_open then
-            require("ai-chat.ui.input").clear()
-        end
-        return
-    end
-
-    -- First-run Ollama detection
-    if not state._ollama_checked and get_conversation().get_provider() == "ollama" then
-        state._ollama_checked = true
-        require("ai-chat.providers.ollama").check_reachable(config.providers.ollama)
-    end
-
-    -- Collect and strip context
-    local context_mod = require("ai-chat.context")
-    local context = context_mod.collect(text, opts.context)
-    local clean_text = context_mod.strip_tags(text)
-    if clean_text == "" then
-        clean_text = text
-    end
-
-    -- Build and append user message
-    local message = {
-        role = "user",
-        content = clean_text,
-        context = context,
-        timestamp = os.time(),
-    }
-    local conv = get_conversation()
-    conv.append(message)
-    require("ai-chat.ui.render").render_message(state.ui.chat_bufnr, message)
-    require("ai-chat.ui.input").clear()
-
-    -- Build provider messages
-    local provider_messages, truncated = conv.build_provider_messages(config)
-    if truncated and not state._truncation_notified then
-        state._truncation_notified = true
-        vim.notify(
-            string.format("[ai-chat] Context window: %d older messages truncated", truncated),
-            vim.log.levels.INFO
-        )
-    end
-
-    -- Start streaming — stream.lua owns the is_active() guard
-    local provider = require("ai-chat.providers").get(conv.get_provider())
-    pcall(vim.api.nvim_exec_autocmds, "User", {
-        pattern = "AiChatResponseStart",
-        data = { provider = conv.get_provider(), model = conv.get_model() },
-    })
-
-    if not state.ui.is_open or not state.ui.chat_bufnr then
-        return
-    end
-
-    get_stream().send(provider, provider_messages, {
-        model = conv.get_model(),
-        provider_name = conv.get_provider(),
-        temperature = config.chat.temperature,
-        max_tokens = config.chat.max_tokens,
-        thinking = config.chat.thinking,
-    }, {
-        chat_bufnr = state.ui.chat_bufnr,
-        chat_winid = state.ui.chat_winid,
-    }, {
-        on_done = function(response)
-            M._update_winbar()
-            conv.append({
-                role = "assistant",
-                content = response.content,
-                usage = response.usage,
-                model = response.model,
-                thinking = response.thinking,
-                timestamp = os.time(),
-            })
-            if response.usage then
-                require("ai-chat.util.costs").record(conv.get_provider(), conv.get_model(), response.usage)
-            end
-            if config.history.enabled then
-                require("ai-chat.history").save(conv.get())
-            end
-            pcall(vim.api.nvim_exec_autocmds, "User", {
-                pattern = "AiChatResponseDone",
-                data = { response = response, usage = response.usage },
-            })
-            if opts.callback then
-                opts.callback(response)
-            end
+    get_pipeline().send(text, opts, state.ui, {
+        conversation = get_conversation(),
+        stream = get_stream(),
+        config = config,
+        open_fn = function()
+            M.open()
         end,
-        on_error = function(err)
-            require("ai-chat.util.log").error("Provider error", err)
-            pcall(vim.api.nvim_exec_autocmds, "User", {
-                pattern = "AiChatResponseError",
-                data = { error = err },
-            })
+        update_winbar_fn = function()
+            M._update_winbar()
         end,
     })
 end
@@ -277,7 +190,7 @@ function M.clear()
         M.cancel()
     end
     get_conversation().new(config.default_provider, config.default_model)
-    state._truncation_notified = nil
+    get_pipeline().reset()
     if state.ui.is_open then
         require("ai-chat.ui.render").clear(state.ui.chat_bufnr)
         M._update_winbar()

@@ -15,7 +15,7 @@
 4. **Local-first.** Default to Ollama (local, free, private). Cloud providers
    are opt-in, never assumed.
 5. **Composable over monolithic.** Integrate with the neovim ecosystem
-   (treesitter, telescope, LSP) but never depend on it. Degrade gracefully.
+   (treesitter, LSP) but never depend on it. Degrade gracefully.
 
 ## Core Decisions
 
