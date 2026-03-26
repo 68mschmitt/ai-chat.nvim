@@ -1,5 +1,12 @@
 # ai-chat.nvim — Architecture
 
+> **Note:** This document describes the **target architecture**. Items listed
+> in `ROADMAP.md` as incomplete (e.g., module extractions, config refactor,
+> new test files) may not yet exist in the codebase. When this document and
+> the code diverge, the code reflects the current state and this document
+> reflects the design intent. See `ROADMAP.md` v0.3 Phase 1 for the plan
+> to converge the two.
+
 ## Directory Structure
 
 ```
@@ -8,8 +15,10 @@ ai-chat.nvim/
 │   └── ai-chat.lua              # Lazy-loaded entry point (commands, autocommands)
 ├── lua/
 │   └── ai-chat/
-│       ├── init.lua              # setup(), public API, module coordinator (~250 lines)
-│       ├── config.lua            # Configuration schema, defaults, validation
+│       ├── init.lua              # setup(), public API, module coordinator (~400 lines target)
+│       ├── keymaps.lua           # Keymap registration (extracted from init.lua)
+│       ├── highlights.lua        # Highlight group definitions (extracted from init.lua)
+│       ├── config.lua            # Configuration schema, defaults, validation, resolved state owner
 │       ├── conversation.lua      # Conversation state, message building, system prompt
 │       ├── stream.lua            # Stream orchestration, cancellation
 │       ├── health.lua            # :checkhealth integration
@@ -67,10 +76,12 @@ ai-chat.nvim/
 
 ```
 plugin/ai-chat.lua
-    └── ai-chat.init              (coordinator, public API, ~250 lines)
+    └── ai-chat.init              (coordinator, public API, ~400 lines target)
+            ├── ai-chat.keymaps        (keymap registration, extracted from init)
+            ├── ai-chat.highlights     (highlight definitions, extracted from init)
             ├── ai-chat.conversation   (conversation data lifecycle)
             ├── ai-chat.stream         (stream orchestration)
-            ├── ai-chat.config         (configuration)
+            ├── ai-chat.config         (configuration, resolved state owner)
             ├── ai-chat.providers.init (provider dispatch)
             │       ├── .ollama
             │       ├── .anthropic
@@ -110,6 +121,17 @@ it goes through `init` (the coordinator). `providers` never touch `ui`.
 calls `ui` or `providers`. `stream` calls `providers` and `ui` (render,
 spinner) but receives conversation data as arguments and calls back to `init`
 via callbacks for history/costs/winbar updates.
+
+**Config ownership:** `config.lua` owns the resolved configuration state.
+`init.lua` calls `config.resolve(user_opts)` during `setup()`, and
+`config.lua` stores the result. All other modules call `config.get()` to
+access the resolved config — no circular `pcall(require, "ai-chat")` dance.
+
+**Extracted modules:** `keymaps.lua` and `highlights.lua` are extracted from
+`init.lua` to keep the coordinator under ~400 lines. They are called by
+`init.lua` during setup and panel open — they don't call back into `init`.
+The Ollama first-run check (`_check_ollama()`) is moved into the Ollama
+provider module where it logically belongs.
 
 ## Data Flow
 
@@ -448,7 +470,6 @@ State is distributed across modules. Each module owns its slice:
 ```lua
 -- ai-chat/init.lua — coordinator state only
 local state = {
-    config = {},              -- resolved configuration (owned by init)
     ui = {                    -- UI state (owned by init, managed by ui/init.lua)
         chat_bufnr = nil,
         chat_winid = nil,
@@ -456,7 +477,14 @@ local state = {
         input_winid = nil,
         is_open = false,
     },
+    last_code_bufnr = nil,    -- Last non-special buffer visited (updated on BufEnter)
     _ollama_checked = false,  -- first-run Ollama detection (once per session)
+}
+
+-- ai-chat/config.lua — configuration state (resolved config owner)
+local state = {
+    resolved = {},            -- populated by config.resolve(user_opts)
+    -- Other modules call config.get() to read; no circular require needed
 }
 
 -- ai-chat/conversation.lua — conversation state
@@ -509,8 +537,12 @@ local state = {
 State is not exposed directly. Access is through functions on each module:
 
 ```lua
+-- config.lua (resolved config owner)
+M.resolve(user_opts)      -- called once by init.lua during setup()
+M.get()                   -- returns resolved config (no circular require)
+
 -- init.lua (coordinator)
-M.get_config()        -- returns resolved config
+M.get_last_code_bufnr()   -- returns last non-special buffer (for context/diff)
 
 -- conversation.lua
 M.get()               -- returns conversation table (read-only copy)
@@ -595,5 +627,15 @@ test-file:
 | `tests/commands/slash_spec.lua` | Slash command routing and argument parsing |
 | `tests/util/costs_spec.lua` | Cost estimation per provider, session accumulation |
 
-**CI:** GitHub Actions with neovim stable + nightly. Runs `make test` on push
-and PR. plenary.nvim is cloned automatically by `tests/minimal_init.lua`.
+**Next priority test files (v0.3 hardening):**
+
+| File | Covers |
+|------|--------|
+| `tests/commands/router_spec.lua` | Command router: parsing, unknown commands, malformed input |
+| `tests/history/store_spec.lua` | JSON round-trip, list ordering, pruning, corrupt file handling |
+| `tests/providers/mock_http_spec.lua` | Provider integration with mocked `vim.system` (SSE/NDJSON) |
+
+**CI:** GitHub Actions with neovim stable + nightly. Set up immediately (not
+deferred to v1.0) — catches regressions early. Runs `make test` and
+`stylua --check` on push and PR. plenary.nvim is cloned automatically by
+`tests/minimal_init.lua`.

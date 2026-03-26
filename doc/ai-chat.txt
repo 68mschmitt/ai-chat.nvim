@@ -134,8 +134,8 @@ Chat buffer:~
     <C-c>          Cancel active generation
     ]]             Jump to next message
     [[             Jump to previous message
-    ]c             Jump to next code block (chat only; ]c in diff = next hunk)
-    [c             Jump to previous code block (chat only; [c in diff = prev hunk)
+    ]b             Jump to next code block
+    [b             Jump to previous code block
     gY             Yank code block under cursor
     ga             Apply code block via diff
     gO             Open code block in a new split
@@ -182,6 +182,17 @@ Type these in the input area:
     /save [name]    Save conversation with optional name
     /load           Browse saved conversations
     /help           List available commands
+
+Extended (v0.3+):~
+
+    /explain        Explain buffer or selection
+    /fix            Fix errors in buffer or selection
+    /test           Generate tests for buffer or selection
+    /review         Code review the current git diff
+    /thinking [on|off|show|hide]
+                    Toggle thinking mode (on/off) or thinking block
+                    visibility (show/hide) at runtime
+    /system [text]  Set or view the system prompt
 
 Extended (v0.5+):~
 

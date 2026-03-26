@@ -87,6 +87,33 @@ The winbar shows when truncation is active: `msgs: 24 (ctx: 12)`. A one-time
 `vim.notify` fires when truncation first kicks in for a conversation. The user
 is never surprised about what the AI does or doesn't remember.
 
+### Context Collection Feedback
+
+When context references (`@buffer`, `@selection`, `@diagnostics`, `@diff`,
+`@file`) are resolved, the plugin confirms what was collected via a brief
+`vim.notify`:
+
+```
+@buffer: main.lua (142 lines, ~2,847 tokens)
+@selection: main.lua:42-45 (4 lines, ~12 tokens)
+@diagnostics: main.lua (3 errors, 2 warnings)
+```
+
+This closes the transparency gap between typing the tag and seeing the result.
+Without feedback, the user doesn't know whether `@buffer` targeted the right
+file, whether the selection was empty, or how much of their context budget was
+consumed — until the AI responds. Context collection feedback makes the
+invisible visible, consistent with the transparency principle.
+
+### Configuration Ownership
+
+`config.lua` owns the resolved configuration state. `init.lua` calls
+`config.resolve(user_opts)` during `setup()`, and `config.lua` stores the
+result internally. Other modules call `config.get()` to access the resolved
+config. This avoids the anti-pattern of `config.lua` reaching back into
+`init.lua` via `pcall(require, "ai-chat")` — a circular dependency that
+creates fragility during testing and module load order changes.
+
 ### Code Application Model
 
 When the AI suggests code, the user can apply it via a diff-based workflow:
@@ -95,6 +122,10 @@ When the AI suggests code, the user can apply it via a diff-based workflow:
 2. A vertical diff split opens: left = original file, right = suggested change
 3. User reviews with standard diff navigation (`]c`, `[c`, `do`, `dp`)
 4. Accept with `:diffoff | only` or reject by closing the diff buffer
+
+Note: Code block navigation in the chat buffer uses `]b`/`[b` (for "block")
+to avoid collision with neovim's built-in `]c`/`[c` diff hunk navigation.
+When in diff mode, `]c`/`[c` work as expected for hunk navigation.
 
 This reuses neovim's built-in diff mode. No custom diff rendering, no
 reinventing the wheel.
@@ -213,6 +244,26 @@ annotation data model.
   modifies buffers, runs shell commands, or acts without explicit user approval.
   Proposals are visible, reviewable, and dismissible. The user always holds
   the final decision.
+
+## Contribution Principles
+
+These principles govern all development and contribution decisions:
+
+1. **No feature without a removal plan.** Every feature must be possible to
+   disable or remove without breaking the plugin. If a feature can't be cleanly
+   excised, it's too tightly coupled.
+2. **Each version must be usable on its own.** No "foundation" releases that
+   deliver zero user value.
+3. **Cut scope, not quality.** If a version is running late, remove features.
+   Don't ship broken ones.
+4. **User feedback drives priority.** After v0.1, the roadmap should be
+   influenced by what people actually use and request.
+5. **Transparency is non-negotiable.** Any change that hides information from
+   the user, auto-applies without consent, or introduces invisible behavior
+   violates the core design philosophy and will be rejected.
+
+These principles should be documented in `CONTRIBUTING.md` when the project
+accepts external contributions (targeted for v1.0).
 
 ## Key References
 

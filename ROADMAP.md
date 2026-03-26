@@ -115,30 +115,110 @@ A user with an Anthropic API key can:
 
 ---
 
-## v0.3 — Integration & Power Features (Target: 3 weeks after v0.2)
+## v0.3 — Hardening & Integration (Target: 4 weeks after v0.2)
 
-### Scope
+v0.3 is split into two phases: **hardening** (structural improvements
+identified during code review) and **integration** (new features). Hardening
+ships first — it reduces tech debt and unlocks faster iteration.
 
-- [ ] Amazon Bedrock provider
-- [ ] Telescope integration (history browser, model picker)
-- [ ] Slash commands: `/explain`, `/fix`, `/test`, `/review`
-- [ ] Slash command completion (ghost text as you type `/`)
-- [x] ~~`@file:path` context (arbitrary file inclusion)~~ *done in v0.1*
+### Phase 1: Hardening (Week 1-2)
+
+**Structural extractions:**
+
+- [ ] Extract `_setup_keymaps()` from `init.lua` into `keymaps.lua`
+- [ ] Extract `_setup_highlights()` from `init.lua` into `highlights.lua`
+- [ ] Move `_check_ollama()` into `providers/ollama.lua` (where it belongs)
+- [ ] Target: get `init.lua` back under ~400 lines — the coordinator should
+  coordinate, not implement
+- [ ] Remove duplicate streaming guard — `is_active()` check in `init.lua:send()`
+  is redundant with `stream.lua:send()`. Keep it in one place (`stream.lua`).
+
+**Config ownership refactor:**
+
+- [ ] Resolve `config.get()` circular dependency — `config.lua` owns the
+  resolved state directly. `init.lua` calls `config.resolve(user_opts)` during
+  `setup()`. Other modules call `config.get()` without the circular
+  `pcall(require, "ai-chat")` dance. Remove `init.lua._get_config()`.
+
+**Code buffer tracking:**
+
+- [ ] Add `state.last_code_bufnr` — updated on `BufEnter` for non-special
+  buffers. Gives context collectors and diff application a reliable target
+  instead of the fragile `_find_code_buffer()` alternate-buffer heuristic.
+
+**Code block navigation key change:**
+
+- [ ] Change code block navigation from `]c`/`[c` to `]b`/`[b` in code and
+  help file — avoids collision with neovim's built-in diff hunk navigation.
+  Design docs (UX.md, API.md, DESIGN.md) already reflect the target state.
+  Remaining: update `config.lua` defaults, `init.lua` keymaps, and
+  `doc/ai-chat.txt`.
+
+**Tooling:**
+
+- [ ] Add `.stylua.toml` at project root. Run stylua. Add `stylua --check` to
+  Makefile.
+- [ ] Add `.deps/` to `.gitignore` (plenary clone shouldn't be in version
+  control; test runner handles bootstrapping)
+- [ ] Add README.md — installation, setup, screenshot. This is the front door
+  for GitHub visitors.
+
+**CI (moved forward from v1.0):**
+
+- [ ] Set up GitHub Actions CI now — neovim stable + nightly. Runs `make test`
+  and `stylua --check` on push and PR. ~20 lines of YAML. Catches regressions
+  early.
+
+**New tests:**
+
+- [ ] Command router test (`tests/commands/router_spec.lua`) — parsing,
+  unknown commands, malformed input
+- [ ] History store test (`tests/history/store_spec.lua`) — JSON round-trip,
+  list ordering, pruning, corrupt file handling
+- [ ] Provider integration tests (`tests/providers/mock_http_spec.lua`) — mock
+  `vim.system` with canned SSE/NDJSON responses, test full streaming pipeline:
+  chunk parsing, error handling, usage extraction, cancel
+
+### Phase 2: Features (Week 3-4)
+
+**Providers:**
+
+- [ ] Amazon Bedrock provider (ship before Telescope — completes the core value
+  proposition. Users who need Bedrock are blocked; Telescope users have
+  `vim.ui.select` as a functional fallback)
+
+**Context improvements:**
+
+- [ ] Context collection feedback — when `@buffer` or `@selection` is resolved,
+  show a brief `vim.notify` confirming what was collected:
+  `"@buffer: main.lua (142 lines, ~2,847 tokens)"`. Closes the transparency
+  gap between typing the tag and seeing the result.
 - [ ] Multi-file context selection
-- [x] ~~`gO` — open code block in new split buffer~~ *done in v0.1*
-- [x] ~~Input history recall (`<Up>`/`<Down>`)~~ *done in v0.1*
-- [x] ~~`:AiChatConfig` — show resolved config~~ *done in v0.1*
-- [x] ~~`:AiChatKeys` — show keybinding reference~~ *done in v0.1*
 - [ ] Project-local config (`.ai-chat.lua` in project root)
 - [ ] System prompt customization (global and per-project)
+
+**Commands:**
+
+- [ ] Slash commands: `/explain`, `/fix`, `/test`, `/review`
+- [ ] Slash command completion (ghost text as you type `/`)
+- [ ] `/thinking show|hide` — runtime toggle for thinking block visibility
+  without restarting. Adds a winbar click target or command-based toggle.
+
+**Integrations (after Bedrock):**
+
+- [ ] Telescope integration (history browser, model picker) — integrate but
+  never depend. Maintaining this boundary requires discipline. `vim.ui.select`
+  remains the fallback.
 
 ### Success Criteria
 
 A user can:
 1. Use `/review` to review a git diff before committing
-2. Browse and search conversation history with Telescope
-3. Include specific files as context without opening them
-4. Customize the system prompt per project
+2. Use Bedrock for enterprise Claude deployments
+3. See what context was collected via feedback notifications
+4. Include specific files as context without opening them
+5. Customize the system prompt per project
+6. Browse and search conversation history with Telescope (if installed)
 
 ---
 
@@ -274,13 +354,15 @@ Note: v1.0 target shifted from "4 weeks after v0.4" to account for v0.5.
 ### Scope
 
 - [ ] All four providers stable and tested
-- [ ] Comprehensive test suite (unit + integration, building on v0.2 foundation)
+- [ ] Comprehensive test suite (unit + integration, building on v0.2-v0.3 foundation)
 - [ ] Polished vim help docs
-- [ ] GitHub Actions CI (neovim stable + nightly)
 - [ ] Export conversation to markdown file
 - [ ] Performance profiling and optimization
 - [ ] Public API stability guarantee
 - [ ] User event hooks fully documented
+- [ ] CONTRIBUTING.md — document contribution guidelines, including the "no
+  feature without a removal plan" principle as a first-class rule (not buried
+  in the roadmap)
 
 ### Quality Bar
 
@@ -313,11 +395,5 @@ These are ideas, not promises. They'll be built if users ask for them.
 - **Conversation templates** — reusable prompt patterns
 - **Provider-specific features** — artifacts (Claude), function calling (OpenAI)
 
-1. **Each version must be usable on its own.** No "foundation" releases that
-   deliver zero user value.
-2. **Cut scope, not quality.** If a version is running late, remove features.
-   Don't ship broken ones.
-3. **User feedback drives priority.** After v0.1, the roadmap should be
-   influenced by what people actually use and request.
-4. **No feature without a removal plan.** Every feature should be possible to
-   disable or remove without breaking the plugin.
+See `DESIGN.md` § Contribution Principles for the rules governing all
+development decisions.

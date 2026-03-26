@@ -294,6 +294,18 @@ When multiple references are used, they stack:
 **Context tag display:** After sending, the resolved context is shown in the
 message header metadata: `[@buffer: main.lua (142 lines, ~2,847 tokens)]`
 
+**Context collection feedback:** On resolution, a brief `vim.notify` confirms
+what was collected before the message is sent:
+
+```
+@buffer: main.lua (142 lines, ~2,847 tokens)
+```
+
+This provides immediate feedback that the correct file was targeted and how
+much of the context budget was consumed. If the buffer was empty or the
+selection was nil, the notification makes that visible immediately — not after
+the AI responds with a confused answer.
+
 ## Keybindings
 
 ### Philosophy
@@ -330,8 +342,8 @@ All keybindings are:
 | `<C-c>` | n, i | Cancel active generation |
 | `]]` | n | Jump to next message |
 | `[[` | n | Jump to previous message |
-| `]c` | n | Jump to next code block (chat only; `]c` in diff = next hunk) |
-| `[c` | n | Jump to previous code block (chat only; `[c` in diff = prev hunk) |
+| `]b` | n | Jump to next code block |
+| `[b` | n | Jump to previous code block |
 | `gY` | n | Yank code block under cursor to clipboard |
 | `ga` | n | Apply code block under cursor (open diff) |
 | `gO` | n | Open code block in a new split buffer |
@@ -395,8 +407,8 @@ targeted.
 | `gx` | n | Dismiss annotation at cursor |
 
 These keymaps are only set on buffers that have annotations. `]a`/`[a` follows
-the standard `]x`/`[x` navigation convention (`]d` for diagnostics, `]c` for
-diff hunks, `]q` for quickfix). `za` echoes neovim's fold toggle. `gx` is
+the standard `]x`/`[x` navigation convention (`]d` for diagnostics, `]b` for
+code blocks in chat, `]q` for quickfix). `za` echoes neovim's fold toggle. `gx` is
 shared with proposals — when both exist on a buffer, proposals take priority
 on the cursor line (see proposal keybindings above).
 
@@ -426,7 +438,7 @@ Typed in the input area. Parsed on submit.
 | `/test` | Generate tests for buffer or selection |
 | `/review` | Code review the current git diff |
 | `/annotate [@ctx] [prompt]` | Place inline annotations on buffer/selection |
-| `/thinking [on\|off]` | Toggle extended thinking mode |
+| `/thinking [on\|off\|show\|hide]` | Toggle extended thinking mode (`on`/`off`) or toggle thinking block visibility (`show`/`hide`) without restarting |
 | `/system [prompt]` | Set or view the system prompt |
 
 ### Completion
@@ -447,7 +459,9 @@ The winbar provides at-a-glance status:
 Components:
 - **Plugin name:** Static identifier
 - **Provider/model:** Active provider and model name
-- **Thinking mode:** On/off indicator (only for providers that support it)
+- **Thinking mode:** On/off indicator (always shown for providers that support
+  it — showing `thinking: off` when disabled makes the state visible at all
+  times, not just when enabled)
 - **Message count:** Number of messages in current conversation. When context
   window truncation is active, shows `msgs: 24 (ctx: 12)` — total messages
   and how many fit in the context window.

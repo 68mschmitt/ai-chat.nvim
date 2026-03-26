@@ -59,10 +59,10 @@ chat.get_conversation()          -- Returns conversation table (read-only)
 chat.save(name)                  -- Save conversation
 chat.load(id)                    -- Load conversation by ID
 
--- Configuration
+-- Configuration (resolved state owned by config.lua)
 chat.set_model(model_name)       -- Switch model
 chat.set_provider(provider_name) -- Switch provider
-chat.get_config()                -- Returns resolved config
+chat.get_config()                -- Returns resolved config (delegates to config.get())
 ```
 
 ---
@@ -339,7 +339,8 @@ local defaults = {
             -- api_key: reads from ANTHROPIC_API_KEY env var by default
             -- Explicitly setting api_key here is discouraged
             model = "claude-sonnet-4-20250514",
-            max_tokens = 8192,
+            max_tokens = 16000,
+            thinking_budget = 10000,
         },
         bedrock = {
             region = "us-east-1",
@@ -401,8 +402,8 @@ local defaults = {
         cancel = "<C-c>",
         next_message = "]]",
         prev_message = "[[",
-        next_code_block = "]c",
-        prev_code_block = "[c",
+        next_code_block = "]b",
+        prev_code_block = "[b",
         yank_code_block = "gY",
         apply_code_block = "ga",
         open_code_block = "gO",
@@ -485,6 +486,17 @@ extensibility:
 | `AiChatPanelClosed` | `{}` | Chat panel closes |
 | `AiChatProviderChanged` | `{ provider, model }` | Provider or model switched |
 | `AiChatConversationCleared` | `{}` | Conversation cleared |
+
+### Planned Events (v0.4-v0.5)
+
+| Event | Data | When |
+|-------|------|------|
+| `AiChatProposalCreated` | `{ proposal }` | AI proposes a code change |
+| `AiChatProposalAccepted` | `{ proposal }` | User accepts a proposal |
+| `AiChatProposalRejected` | `{ proposal }` | User rejects a proposal |
+| `AiChatProposalExpired` | `{ proposal }` | Proposal invalidated by user edits |
+| `AiChatAnnotationCreated` | `{ annotations }` | Annotations placed on a buffer |
+| `AiChatAnnotationCleared` | `{ bufnr }` | Annotations removed from a buffer |
 
 Usage:
 ```lua
