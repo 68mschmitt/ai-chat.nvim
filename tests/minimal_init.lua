@@ -23,6 +23,10 @@ if vim.fn.isdirectory(plenary_path) == 0 then
 end
 vim.opt.rtp:prepend(plenary_path)
 
+-- With --noplugin, neovim skips sourcing plugin/ directories from rtp.
+-- Explicitly source plenary's plugin file so PlenaryBustedDirectory is registered.
+vim.cmd("runtime plugin/plenary.vim")
+
 -- Minimal settings
 vim.o.swapfile = false
 vim.o.backup = false

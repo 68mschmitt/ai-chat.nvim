@@ -3,11 +3,11 @@
 MINIMAL_INIT := tests/minimal_init.lua
 
 # Run all plenary.busted tests
-# Uses the Lua API directly instead of the PlenaryBustedDirectory ex command
-# for reliable behavior across local and CI environments.
+# Uses --noplugin for a clean environment; minimal_init.lua bootstraps plenary
+# and explicitly sources its plugin file to register PlenaryBustedDirectory.
 test:
 	nvim --headless --noplugin -u $(MINIMAL_INIT) \
-		-c "lua require('plenary.test_harness').test_directory('tests', {minimal_init = '$(MINIMAL_INIT)', sequential = true})"
+		-c "PlenaryBustedDirectory tests/ {minimal_init = '$(MINIMAL_INIT)'}"
 
 # Run the v0.1 verification tests
 verify:
@@ -16,7 +16,7 @@ verify:
 # Run a single test file (usage: make test-file FILE=tests/util/tokens_spec.lua)
 test-file:
 	nvim --headless --noplugin -u $(MINIMAL_INIT) \
-		-c "lua require('plenary.test_harness').test_directory('$(FILE)', {minimal_init = '$(MINIMAL_INIT)'})"
+		-c "PlenaryBustedFile $(FILE)"
 
 # Check formatting (CI uses this)
 lint:
