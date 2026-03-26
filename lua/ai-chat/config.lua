@@ -1,7 +1,11 @@
 --- ai-chat.nvim — Configuration
 --- Schema definition, defaults, validation, and resolution.
+--- The resolved config is stored module-locally after setup() calls resolve().
 
 local M = {}
+
+---@type AiChatConfig?
+local _resolved = nil
 
 ---@class AiChatConfig
 M.defaults = {
@@ -16,7 +20,6 @@ M.defaults = {
             host = "http://localhost:11434",
         },
         anthropic = {
-            -- api_key: reads from ANTHROPIC_API_KEY env var
             model = "claude-sonnet-4-20250514",
             max_tokens = 8192,
         },
@@ -26,7 +29,6 @@ M.defaults = {
         },
         openai_compat = {
             endpoint = "https://api.openai.com/v1/chat/completions",
-            -- api_key: reads from OPENAI_API_KEY env var
             model = "gpt-4o",
         },
     },
@@ -43,7 +45,6 @@ M.defaults = {
         show_cost = true,
         show_tokens = true,
         spinner = true,
-        separator = "─",
     },
 
     -- Chat behavior
@@ -60,7 +61,7 @@ M.defaults = {
     history = {
         enabled = true,
         max_conversations = 100,
-        storage_path = nil, -- defaults to stdpath("data") .. "/ai-chat/history"
+        storage_path = nil,
     },
 
     -- Keybindings (set any to false to disable)
@@ -102,7 +103,7 @@ M.defaults = {
     log = {
         enabled = true,
         level = "info",
-        file = nil, -- defaults to stdpath("data") .. "/ai-chat/log.txt"
+        file = nil,
         max_size_mb = 10,
     },
 }
@@ -111,7 +112,14 @@ M.defaults = {
 ---@param opts table  User-provided options
 ---@return AiChatConfig
 function M.resolve(opts)
-    return vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
+    _resolved = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
+    return _resolved
+end
+
+--- Get the currently resolved config. Returns defaults if setup hasn't run.
+---@return AiChatConfig
+function M.get()
+    return _resolved or M.defaults
 end
 
 --- Validate a resolved config.
@@ -119,7 +127,6 @@ end
 ---@return boolean ok
 ---@return string? error_message
 function M.validate(config)
-    -- Type checks
     if type(config.default_provider) ~= "string" then
         return false, "default_provider must be a string"
     end
@@ -157,17 +164,19 @@ function M.validate(config)
 end
 
 --- Get the storage path for history, with default fallback.
----@param config AiChatConfig
+---@param config? AiChatConfig
 ---@return string
 function M.history_path(config)
+    config = config or M.get()
     return config.history.storage_path
         or (vim.fn.stdpath("data") .. "/ai-chat/history")
 end
 
 --- Get the log file path, with default fallback.
----@param config AiChatConfig
+---@param config? AiChatConfig
 ---@return string
 function M.log_path(config)
+    config = config or M.get()
     return config.log.file
         or (vim.fn.stdpath("data") .. "/ai-chat/log.txt")
 end

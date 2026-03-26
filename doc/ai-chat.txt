@@ -1,0 +1,310 @@
+*ai-chat.txt*    AI chat interface for Neovim
+
+Author: ai-chat.nvim contributors
+License: MIT
+
+==============================================================================
+CONTENTS                                                    *ai-chat-contents*
+
+    1. Introduction ........................... |ai-chat-introduction|
+    2. Requirements ........................... |ai-chat-requirements|
+    3. Setup .................................. |ai-chat-setup|
+    4. Commands ............................... |ai-chat-commands|
+    5. Keybindings ............................ |ai-chat-keybindings|
+    6. Slash Commands ......................... |ai-chat-slash-commands|
+    7. Context References ..................... |ai-chat-context|
+    8. Providers .............................. |ai-chat-providers|
+    9. Configuration .......................... |ai-chat-configuration|
+    10. Highlights ............................ |ai-chat-highlights|
+    11. Events ................................ |ai-chat-events|
+
+==============================================================================
+1. INTRODUCTION                                         *ai-chat-introduction*
+
+ai-chat.nvim is a transparent, native-feeling AI chat interface for Neovim.
+It provides a vertical split chat panel where you can have multi-turn
+conversations with AI models while keeping your code visible alongside.
+
+Design principles:
+- Transparency: always see what context the AI receives and what it costs
+- Native: uses splits, buffers, and standard neovim keybindings
+- Minimal: does one thing well — chat with an AI about your code
+- Local-first: defaults to Ollama (free, private, zero-config)
+
+==============================================================================
+2. REQUIREMENTS                                         *ai-chat-requirements*
+
+- Neovim >= 0.10
+- curl (for HTTP requests)
+- An AI provider:
+  - Ollama (recommended, https://ollama.ai) — local, free, private
+  - Anthropic API key (for Claude models)
+  - OpenAI API key (or compatible endpoint)
+
+==============================================================================
+3. SETUP                                                       *ai-chat-setup*
+
+Add to your plugin manager (e.g., lazy.nvim): >lua
+
+    {
+        "your-username/ai-chat.nvim",
+        cmd = { "AiChat", "AiChatOpen", "AiChatSend" },
+        keys = { "<leader>aa", "<leader>ac" },
+        config = function()
+            require("ai-chat").setup({
+                default_provider = "ollama",
+                default_model = "llama3.2",
+            })
+        end,
+    }
+<
+
+Minimal setup (uses all defaults): >lua
+
+    require("ai-chat").setup()
+<
+
+==============================================================================
+4. COMMANDS                                                 *ai-chat-commands*
+
+:AiChat                                                            *:AiChat*
+    Toggle the chat panel open/closed.
+
+:AiChatOpen                                                    *:AiChatOpen*
+    Open the chat panel (no-op if already open).
+
+:AiChatClose                                                  *:AiChatClose*
+    Close the chat panel.
+
+:AiChatSend [text]                                             *:AiChatSend*
+    Send a message. If [text] is omitted, reads from the input area.
+
+:AiChatClear                                                  *:AiChatClear*
+    Clear the current conversation and start fresh.
+
+:AiChatModel [model]                                          *:AiChatModel*
+    Switch the active model. Opens a picker if [model] is omitted.
+
+:AiChatProvider [provider]                                *:AiChatProvider*
+    Switch the active provider. Opens a picker if [provider] is omitted.
+
+:AiChatHistory                                            *:AiChatHistory*
+    Browse saved conversation history.
+
+:AiChatSave [name]                                            *:AiChatSave*
+    Save the current conversation with an optional name.
+
+:AiChatLog                                                    *:AiChatLog*
+    Open the audit log showing API interactions.
+
+:AiChatCosts                                                  *:AiChatCosts*
+    Show a summary of API costs for this session.
+
+:AiChatKeys                                                    *:AiChatKeys*
+    Show all active keybindings.
+
+:AiChatConfig                                                *:AiChatConfig*
+    Show the resolved plugin configuration.
+
+==============================================================================
+5. KEYBINDINGS                                           *ai-chat-keybindings*
+
+Global (default prefix: <leader>a):~
+
+    <leader>aa     Toggle chat panel
+    <leader>as     Send visual selection to chat (visual mode)
+    <leader>ae     Explain visual selection (visual mode)
+    <leader>af     Fix visual selection (visual mode)
+    <leader>ac     Focus chat input
+    <leader>am     Switch model
+    <leader>ap     Switch provider
+
+Chat buffer:~
+
+    q              Close chat panel
+    <C-c>          Cancel active generation
+    ]]             Jump to next message
+    [[             Jump to previous message
+    ]c             Jump to next code block
+    [c             Jump to previous code block
+    gY             Yank code block under cursor
+    ga             Apply code block via diff
+    gO             Open code block in a new split
+    i              Focus input area
+
+Input buffer:~
+
+    <CR>           Send message (normal mode)
+    <C-CR>         Send message (insert mode)
+    <S-CR>         Send message (insert mode, alternative)
+    <Up>           Recall previous message
+    <Down>         Recall next message
+    q              Close panel (when input is empty)
+    <C-c>          Cancel active generation
+
+All keybindings can be overridden in setup(). Set any key to `false`
+to disable it.
+
+==============================================================================
+6. SLASH COMMANDS                                     *ai-chat-slash-commands*
+
+Type these in the input area:
+
+    /clear          Clear conversation, start fresh
+    /new            Save current and start new conversation
+    /model [name]   Switch model (picker if no name given)
+    /provider [n]   Switch provider (picker if no name given)
+    /context        Show available context types
+    /save [name]    Save conversation with optional name
+    /load           Browse saved conversations
+    /help           List available commands
+
+==============================================================================
+7. CONTEXT REFERENCES                                      *ai-chat-context*
+
+Add context to your messages by prefixing with @tags:
+
+    @buffer         Include the current code buffer content
+    @selection      Include the last visual selection
+    @diagnostics    Include LSP diagnostics for current buffer
+    @diff           Include git diff (unstaged changes)
+    @file:path      Include a specific file
+
+Example: >
+    @buffer How do I fix the type error on line 42?
+    @selection Explain this function
+    @diff Review my changes
+<
+
+Context is displayed in message metadata so you always know what the AI sees.
+
+==============================================================================
+8. PROVIDERS                                              *ai-chat-providers*
+
+Ollama (default):~
+    Local inference. No API key needed. Install from https://ollama.ai
+    Start with: `ollama serve`
+    Pull a model: `ollama pull llama3.2`
+
+Anthropic:~
+    Set ANTHROPIC_API_KEY environment variable.
+
+OpenAI-compatible:~
+    Set OPENAI_API_KEY environment variable.
+    Covers: OpenAI, Azure OpenAI, Groq, Together, LM Studio.
+
+Amazon Bedrock:~
+    Requires AWS CLI configured with appropriate credentials.
+
+==============================================================================
+9. CONFIGURATION                                      *ai-chat-configuration*
+
+Full configuration with defaults: >lua
+
+    require("ai-chat").setup({
+        default_provider = "ollama",
+        default_model = "llama3.2",
+
+        providers = {
+            ollama = {
+                host = "http://localhost:11434",
+            },
+            anthropic = {
+                model = "claude-sonnet-4-20250514",
+                max_tokens = 8192,
+            },
+            openai_compat = {
+                endpoint = "https://api.openai.com/v1/chat/completions",
+                model = "gpt-4o",
+            },
+        },
+
+        ui = {
+            width = 0.25,          -- fraction of editor width
+            min_width = 60,
+            max_width = 120,
+            position = "right",    -- "right" or "left"
+            input_height = 3,
+            show_winbar = true,
+            show_cost = true,
+            show_tokens = true,
+            spinner = true,
+        },
+
+        chat = {
+            system_prompt = nil,   -- custom system prompt
+            temperature = 0.7,
+            max_tokens = 4096,
+            thinking = false,
+            auto_scroll = true,
+            show_context = true,
+        },
+
+        history = {
+            enabled = true,
+            max_conversations = 100,
+            storage_path = nil,    -- defaults to stdpath("data")/ai-chat
+        },
+
+        keys = {
+            toggle = "<leader>aa",
+            send_selection = "<leader>as",
+            quick_explain = "<leader>ae",
+            quick_fix = "<leader>af",
+            focus_input = "<leader>ac",
+            switch_model = "<leader>am",
+            switch_provider = "<leader>ap",
+        },
+
+        log = {
+            enabled = true,
+            level = "info",
+            max_size_mb = 10,
+        },
+    })
+<
+
+==============================================================================
+10. HIGHLIGHTS                                           *ai-chat-highlights*
+
+ai-chat.nvim defines the following highlight groups (with defaults):
+
+    AiChatUser            Title           Message header for user
+    AiChatAssistant       Statement       Message header for assistant
+    AiChatMeta            Comment         Metadata (tokens, cost, context)
+    AiChatError           DiagnosticError Error messages
+    AiChatWarning         DiagnosticWarn  Warning messages
+    AiChatSpinner         DiagnosticInfo  Spinner animation
+    AiChatSeparator       WinSeparator    Separator lines
+    AiChatInputPrompt     Question        Input area prompt
+    AiChatContextTag      Tag             Context reference tags
+
+Override in your colorscheme or config: >lua
+    vim.api.nvim_set_hl(0, "AiChatUser", { fg = "#e0af68", bold = true })
+<
+
+==============================================================================
+11. EVENTS                                                  *ai-chat-events*
+
+ai-chat.nvim emits User autocommand events:
+
+    AiChatMessageSent        User sends a message
+    AiChatResponseStart      Response streaming begins
+    AiChatResponseDone       Response streaming completes
+    AiChatResponseError      Response fails
+    AiChatPanelOpened        Chat panel opens
+    AiChatPanelClosed        Chat panel closes
+    AiChatProviderChanged    Provider or model switched
+    AiChatConversationCleared Conversation cleared
+
+Example: >lua
+    vim.api.nvim_create_autocmd("User", {
+        pattern = "AiChatResponseDone",
+        callback = function(args)
+            print("Response complete!")
+        end,
+    })
+<
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:

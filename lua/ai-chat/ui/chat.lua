@@ -15,14 +15,16 @@ local state = {
 function M.create(width, position)
     -- Create scratch buffer for chat content
     local bufnr = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(bufnr, "ai-chat://chat")
 
-    -- Buffer options
+    -- Buffer options (set before naming to avoid issues)
     vim.bo[bufnr].buftype = "nofile"
     vim.bo[bufnr].bufhidden = "hide"
     vim.bo[bufnr].swapfile = false
     vim.bo[bufnr].filetype = "aichat"
     vim.bo[bufnr].modifiable = false
+
+    -- Use pcall for buffer naming since it can fail if name is taken
+    pcall(vim.api.nvim_buf_set_name, bufnr, "ai-chat://chat")
 
     -- Create the vertical split
     local split_cmd = position == "left" and "topleft" or "botright"
@@ -40,17 +42,13 @@ function M.create(width, position)
     vim.wo[winid].cursorline = false
     vim.wo[winid].spell = false
     vim.wo[winid].list = false
-    vim.wo[winid].conceallevel = 2
-    vim.wo[winid].concealcursor = "nc"
+    vim.wo[winid].winfixwidth = true
 
     -- Set up buffer-local keymaps
     M._setup_keymaps(bufnr)
 
     state.bufnr = bufnr
     state.winid = winid
-
-    -- Return focus to the previous window
-    vim.cmd("wincmd p")
 
     return { bufnr = bufnr, winid = winid }
 end
@@ -67,6 +65,18 @@ function M.destroy()
     state.winid = nil
 end
 
+--- Get the current chat window ID.
+---@return number?
+function M.get_winid()
+    return state.winid
+end
+
+--- Get the current chat buffer number.
+---@return number?
+function M.get_bufnr()
+    return state.bufnr
+end
+
 --- Update the winbar to show current status.
 ---@param winid number
 ---@param conversation AiChatConversation
@@ -80,42 +90,43 @@ function M.update_winbar(winid, conversation)
         table.insert(parts, "msgs: " .. #conversation.messages)
     end
 
+    -- Add session cost if applicable
+    local cost = require("ai-chat.util.costs").get_session_cost()
+    if cost > 0 then
+        table.insert(parts, string.format("$%.2f", cost))
+    end
+
     vim.wo[winid].winbar = table.concat(parts, " │ ")
 end
 
 --- Set up buffer-local keymaps for the chat buffer.
 ---@param bufnr number
 function M._setup_keymaps(bufnr)
-    local map = function(mode, lhs, rhs, desc)
-        vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = "[ai-chat] " .. desc })
+    local opts = function(desc)
+        return { buffer = bufnr, nowait = true, desc = "[ai-chat] " .. desc }
     end
 
-    -- These use the config keys, but we hardcode defaults here as the
-    -- config-driven mapping happens in init.lua. These are the buffer-local
-    -- actions that only make sense in the chat buffer.
-    map("n", "q", function() require("ai-chat").close() end, "Close panel")
-    map("n", "<C-c>", function() require("ai-chat").cancel() end, "Cancel generation")
-    map("n", "]]", function() M._jump_message(bufnr, "next") end, "Next message")
-    map("n", "[[", function() M._jump_message(bufnr, "prev") end, "Previous message")
-    map("n", "]c", function() M._jump_code_block(bufnr, "next") end, "Next code block")
-    map("n", "[c", function() M._jump_code_block(bufnr, "prev") end, "Previous code block")
-    map("n", "gY", function() M._yank_code_block(bufnr) end, "Yank code block")
-    map("n", "ga", function() M._apply_code_block(bufnr) end, "Apply code block")
-    map("n", "gO", function() M._open_code_block(bufnr) end, "Open code block in split")
-    map("n", "i", function()
-        -- Focus input area instead of entering insert mode
-        local ai_chat = require("ai-chat")
-        local config = ai_chat.get_config()
-        -- The input window is managed by ui.input
+    vim.keymap.set("n", "q", function() require("ai-chat").close() end, opts("Close panel"))
+    vim.keymap.set("n", "<C-c>", function() require("ai-chat").cancel() end, opts("Cancel generation"))
+    vim.keymap.set("n", "]]", function() M._jump_message("next") end, opts("Next message"))
+    vim.keymap.set("n", "[[", function() M._jump_message("prev") end, opts("Previous message"))
+    vim.keymap.set("n", "]c", function() M._jump_code_block("next") end, opts("Next code block"))
+    vim.keymap.set("n", "[c", function() M._jump_code_block("prev") end, opts("Previous code block"))
+    vim.keymap.set("n", "gY", function() M._yank_code_block() end, opts("Yank code block"))
+    vim.keymap.set("n", "ga", function() M._apply_code_block() end, opts("Apply code block"))
+    vim.keymap.set("n", "gO", function() M._open_code_block() end, opts("Open code block in split"))
+    vim.keymap.set("n", "i", function()
         require("ai-chat.ui.input").focus()
-    end, "Focus input")
+    end, opts("Focus input"))
 end
 
 --- Jump to next/previous message header (## You / ## Assistant).
----@param bufnr number
 ---@param direction "next"|"prev"
-function M._jump_message(bufnr, direction)
-    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+function M._jump_message(direction)
+    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then return end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
+
+    local lines = vim.api.nvim_buf_get_lines(state.bufnr, 0, -1, false)
     local cursor = vim.api.nvim_win_get_cursor(state.winid)
     local current_line = cursor[1]
 
@@ -146,10 +157,12 @@ function M._jump_message(bufnr, direction)
 end
 
 --- Jump to next/previous code block.
----@param bufnr number
 ---@param direction "next"|"prev"
-function M._jump_code_block(bufnr, direction)
-    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+function M._jump_code_block(direction)
+    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then return end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
+
+    local lines = vim.api.nvim_buf_get_lines(state.bufnr, 0, -1, false)
     local cursor = vim.api.nvim_win_get_cursor(state.winid)
     local current_line = cursor[1]
 
@@ -180,21 +193,22 @@ function M._jump_code_block(bufnr, direction)
 end
 
 --- Yank the code block under cursor to the clipboard.
----@param bufnr number
-function M._yank_code_block(bufnr)
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(bufnr, state.winid)
+function M._yank_code_block()
+    if not state.bufnr or not state.winid then return end
+    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         vim.fn.setreg("+", block.content)
-        vim.notify("[ai-chat] Code block yanked to clipboard", vim.log.levels.INFO)
+        vim.fn.setreg('"', block.content)
+        vim.notify("[ai-chat] Code block yanked", vim.log.levels.INFO)
     else
         vim.notify("[ai-chat] No code block under cursor", vim.log.levels.WARN)
     end
 end
 
 --- Apply the code block under cursor via diff.
----@param bufnr number
-function M._apply_code_block(bufnr)
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(bufnr, state.winid)
+function M._apply_code_block()
+    if not state.bufnr or not state.winid then return end
+    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         require("ai-chat.ui.diff").apply(block)
     else
@@ -203,18 +217,19 @@ function M._apply_code_block(bufnr)
 end
 
 --- Open the code block under cursor in a new split buffer.
----@param bufnr number
-function M._open_code_block(bufnr)
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(bufnr, state.winid)
+function M._open_code_block()
+    if not state.bufnr or not state.winid then return end
+    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
-        -- Create a new scratch buffer with the code
         local new_buf = vim.api.nvim_create_buf(false, true)
         local lines = vim.split(block.content, "\n")
         vim.api.nvim_buf_set_lines(new_buf, 0, -1, false, lines)
         if block.language then
             vim.bo[new_buf].filetype = block.language
         end
-        -- Open in a split to the left of the chat
+        vim.bo[new_buf].buftype = "nofile"
+        vim.bo[new_buf].bufhidden = "wipe"
+        -- Open in the code area
         vim.cmd("wincmd p")
         vim.cmd("split")
         vim.api.nvim_win_set_buf(0, new_buf)

@@ -6,10 +6,6 @@
 local M = {}
 
 ---@class AiChatState
----@field config AiChatConfig
----@field conversation AiChatConversation
----@field ui AiChatUIState
----@field streaming AiChatStreamState
 local state = {
     config = {},
     conversation = {
@@ -46,11 +42,11 @@ function M.setup(opts)
         return
     end
 
-    -- Set up keybindings
-    M._setup_keymaps()
-
-    -- Set up highlight groups
+    -- Set up highlight groups first (other modules may reference them)
     M._setup_highlights()
+
+    -- Set up global keybindings
+    M._setup_keymaps()
 
     -- Initialize history if enabled
     if state.config.history.enabled then
@@ -82,14 +78,14 @@ function M.open()
     if state.ui.is_open then return end
 
     local ui = require("ai-chat.ui")
-    local winids = ui.open(state.config.ui, state.conversation)
-    state.ui.chat_bufnr = winids.chat_bufnr
-    state.ui.chat_winid = winids.chat_winid
-    state.ui.input_bufnr = winids.input_bufnr
-    state.ui.input_winid = winids.input_winid
+    local result = ui.open(state.config.ui, state.conversation)
+    state.ui.chat_bufnr = result.chat_bufnr
+    state.ui.chat_winid = result.chat_winid
+    state.ui.input_bufnr = result.input_bufnr
+    state.ui.input_winid = result.input_winid
     state.ui.is_open = true
 
-    vim.api.nvim_exec_autocmds("User", {
+    pcall(vim.api.nvim_exec_autocmds, "User", {
         pattern = "AiChatPanelOpened",
         data = { winid = state.ui.chat_winid, bufnr = state.ui.chat_bufnr },
     })
@@ -97,7 +93,6 @@ end
 
 --- Close the chat panel.
 function M.close()
-    M._ensure_init()
     if not state.ui.is_open then return end
 
     -- Cancel any active generation
@@ -109,8 +104,10 @@ function M.close()
     state.ui.is_open = false
     state.ui.chat_winid = nil
     state.ui.input_winid = nil
+    state.ui.chat_bufnr = nil
+    state.ui.input_bufnr = nil
 
-    vim.api.nvim_exec_autocmds("User", { pattern = "AiChatPanelClosed" })
+    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatPanelClosed" })
 end
 
 --- Returns whether the chat panel is currently open.
@@ -121,7 +118,7 @@ end
 
 --- Send a message to the AI.
 ---@param text? string  Message text. If nil, uses current input buffer content.
----@param opts? { context?: table, callback?: fun(response: AiChatResponse) }
+---@param opts? { context?: string[], callback?: fun(response: AiChatResponse) }
 function M.send(text, opts)
     M._ensure_init()
     opts = opts or {}
@@ -133,20 +130,39 @@ function M.send(text, opts)
 
     if not text or text == "" then return end
 
+    -- Open panel if not open
+    if not state.ui.is_open then
+        M.open()
+    end
+
     -- Check for slash commands
     if text:match("^/") then
         require("ai-chat.commands").handle(text, state)
+        -- Clear the input after handling slash command
+        if state.ui.is_open then
+            require("ai-chat.ui.input").clear()
+        end
         return
     end
 
-    -- Collect context
+    -- Don't send while already streaming
+    if state.streaming.active then
+        vim.notify("[ai-chat] Already generating a response. Press <C-c> to cancel.", vim.log.levels.WARN)
+        return
+    end
+
+    -- Collect context from @tags in the message
     local context_mod = require("ai-chat.context")
     local context = context_mod.collect(text, opts.context)
+
+    -- Strip @tags from the display text
+    local clean_text = context_mod.strip_tags(text)
+    if clean_text == "" then clean_text = text end
 
     -- Build user message
     local message = {
         role = "user",
-        content = text,
+        content = clean_text,
         context = context,
         timestamp = os.time(),
     }
@@ -155,9 +171,7 @@ function M.send(text, opts)
     table.insert(state.conversation.messages, message)
 
     -- Render user message in chat
-    if state.ui.is_open then
-        require("ai-chat.ui.render").render_message(state.ui.chat_bufnr, message)
-    end
+    require("ai-chat.ui.render").render_message(state.ui.chat_bufnr, message)
 
     -- Clear input
     require("ai-chat.ui.input").clear()
@@ -172,7 +186,7 @@ function M.send(text, opts)
     state.streaming.active = true
     spinner.start(state.ui.chat_winid)
 
-    vim.api.nvim_exec_autocmds("User", {
+    pcall(vim.api.nvim_exec_autocmds, "User", {
         pattern = "AiChatResponseStart",
         data = { provider = state.conversation.provider, model = state.conversation.model },
     })
@@ -200,6 +214,9 @@ function M.send(text, opts)
                 -- Finalize rendering
                 stream_render.finish(response.usage)
 
+                -- Update winbar with new message count
+                M._update_winbar()
+
                 -- Store assistant message
                 table.insert(state.conversation.messages, {
                     role = "assistant",
@@ -224,7 +241,7 @@ function M.send(text, opts)
                     require("ai-chat.history").save(state.conversation)
                 end
 
-                vim.api.nvim_exec_autocmds("User", {
+                pcall(vim.api.nvim_exec_autocmds, "User", {
                     pattern = "AiChatResponseDone",
                     data = { response = response, usage = response.usage },
                 })
@@ -243,7 +260,7 @@ function M.send(text, opts)
 
                 require("ai-chat.util.log").error("Provider error", err)
 
-                vim.api.nvim_exec_autocmds("User", {
+                pcall(vim.api.nvim_exec_autocmds, "User", {
                     pattern = "AiChatResponseError",
                     data = { error = err },
                 })
@@ -277,8 +294,9 @@ function M.clear()
     M._new_conversation()
     if state.ui.is_open then
         require("ai-chat.ui.render").clear(state.ui.chat_bufnr)
+        M._update_winbar()
     end
-    vim.api.nvim_exec_autocmds("User", { pattern = "AiChatConversationCleared" })
+    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatConversationCleared" })
 end
 
 --- Get a read-only copy of the current conversation.
@@ -300,12 +318,16 @@ function M.set_model(model_name)
     if model_name then
         state.conversation.model = model_name
         M._update_winbar()
+        vim.notify("[ai-chat] Model: " .. model_name, vim.log.levels.INFO)
     else
-        -- List models from the active provider and present picker
         local provider = require("ai-chat.providers").get(state.conversation.provider)
         provider.list_models(
-            state.config.providers[state.conversation.provider],
+            state.config.providers[state.conversation.provider] or {},
             function(models)
+                if #models == 0 then
+                    vim.notify("[ai-chat] No models available from " .. state.conversation.provider, vim.log.levels.WARN)
+                    return
+                end
                 vim.ui.select(models, { prompt = "Select model:" }, function(choice)
                     if choice then
                         M.set_model(choice)
@@ -327,13 +349,13 @@ function M.set_provider(provider_name)
             return
         end
         state.conversation.provider = provider_name
-        -- Reset model to provider default
         local provider_config = state.config.providers[provider_name]
         if provider_config and provider_config.model then
             state.conversation.model = provider_config.model
         end
         M._update_winbar()
-        vim.api.nvim_exec_autocmds("User", {
+        vim.notify("[ai-chat] Provider: " .. provider_name, vim.log.levels.INFO)
+        pcall(vim.api.nvim_exec_autocmds, "User", {
             pattern = "AiChatProviderChanged",
             data = { provider = provider_name, model = state.conversation.model },
         })
@@ -353,6 +375,7 @@ function M.save(name)
     M._ensure_init()
     if state.config.history.enabled then
         require("ai-chat.history").save(state.conversation, name)
+        vim.notify("[ai-chat] Conversation saved", vim.log.levels.INFO)
     end
 end
 
@@ -366,6 +389,7 @@ function M.load(id)
             state.conversation = conv
             if state.ui.is_open then
                 require("ai-chat.ui.render").render_conversation(state.ui.chat_bufnr, conv)
+                M._update_winbar()
             end
         end
     else
@@ -385,33 +409,80 @@ end
 
 --- Show keybinding reference.
 function M.show_keys()
-    -- Display all active keybindings in a floating window
-    local lines = { "ai-chat.nvim — Keybindings", "" }
-    for action, key in pairs(state.config.keys) do
-        if key then
-            table.insert(lines, string.format("  %-20s %s", key, action))
+    local lines = { "ai-chat.nvim Keybindings", string.rep("-", 40) }
+
+    local sections = {
+        { "Global", {
+            { "toggle", "Toggle chat panel" },
+            { "send_selection", "Send selection to chat" },
+            { "quick_explain", "Explain selection" },
+            { "quick_fix", "Fix selection" },
+            { "focus_input", "Focus chat input" },
+            { "switch_model", "Switch model" },
+            { "switch_provider", "Switch provider" },
+        }},
+        { "Chat Buffer", {
+            { "close", "Close panel" },
+            { "cancel", "Cancel generation" },
+            { "next_message", "Next message" },
+            { "prev_message", "Previous message" },
+            { "next_code_block", "Next code block" },
+            { "prev_code_block", "Previous code block" },
+            { "yank_code_block", "Yank code block" },
+            { "apply_code_block", "Apply code block (diff)" },
+            { "open_code_block", "Open code block in split" },
+        }},
+        { "Input", {
+            { "submit_normal", "Send message (normal)" },
+            { "submit_insert", "Send message (insert)" },
+            { "recall_prev", "Previous in history" },
+            { "recall_next", "Next in history" },
+        }},
+    }
+
+    local keys = initialized and state.config.keys or require("ai-chat.config").defaults.keys
+    for _, section in ipairs(sections) do
+        table.insert(lines, "")
+        table.insert(lines, section[1] .. ":")
+        for _, item in ipairs(section[2]) do
+            local key = keys[item[1]]
+            if key then
+                table.insert(lines, string.format("  %-16s %s", key, item[2]))
+            end
         end
     end
-    -- Show in a scratch buffer
+
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.api.nvim_buf_set_option(buf, "modifiable", false)
-    vim.cmd("botright split")
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].bufhidden = "wipe"
+    vim.cmd("botright " .. math.min(#lines + 2, 30) .. "split")
     vim.api.nvim_win_set_buf(0, buf)
-    vim.api.nvim_win_set_height(0, #lines + 2)
+    vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = buf })
 end
 
 --- Show resolved configuration.
 function M.show_config()
     M._ensure_init()
-    local lines = vim.split(vim.inspect(state.config), "\n")
-    table.insert(lines, 1, "ai-chat.nvim — Resolved Configuration")
-    table.insert(lines, 2, "")
+    -- Redact any API keys
+    local display_config = vim.deepcopy(state.config)
+    for _, pname in ipairs({ "anthropic", "openai_compat" }) do
+        if display_config.providers[pname] and display_config.providers[pname].api_key then
+            display_config.providers[pname].api_key = "***"
+        end
+    end
+
+    local lines = vim.split(vim.inspect(display_config), "\n")
+    table.insert(lines, 1, "ai-chat.nvim Resolved Configuration")
+    table.insert(lines, 2, string.rep("-", 40))
+
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].bufhidden = "wipe"
     vim.cmd("botright split")
     vim.api.nvim_win_set_buf(0, buf)
+    vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = buf })
 end
 
 -- ─── Internal ────────────────────────────────────────────────────────
@@ -442,11 +513,12 @@ function M._build_provider_messages()
     -- Conversation history with inlined context
     for _, msg in ipairs(state.conversation.messages) do
         local content = msg.content
-        if msg.context and #msg.context > 0 then
+        -- Inline context above the user's message
+        if msg.role == "user" and msg.context and #msg.context > 0 then
             local context_parts = {}
             for _, ctx in ipairs(msg.context) do
                 table.insert(context_parts, string.format(
-                    "--- Context: %s (%s) ---\n%s\n--- End Context ---",
+                    "<context type=\"%s\" source=\"%s\">\n%s\n</context>",
                     ctx.type, ctx.source, ctx.content
                 ))
             end
@@ -473,26 +545,56 @@ function M._setup_keymaps()
     local map = vim.keymap.set
 
     if keys.toggle then
-        map("n", keys.toggle, M.toggle, { desc = "[ai-chat] Toggle panel" })
+        map("n", keys.toggle, function() M.toggle() end, { desc = "[ai-chat] Toggle panel" })
     end
+
     if keys.send_selection then
-        map({ "n", "v" }, keys.send_selection, function()
-            M.open()
-            -- Get visual selection and send
-            local lines = vim.fn.getregion(vim.fn.getpos("v"), vim.fn.getpos("."), { type = vim.fn.mode() })
-            if lines and #lines > 0 then
-                M.send(table.concat(lines, "\n"), { context = { "selection" } })
+        map("v", keys.send_selection, function()
+            -- Yank the visual selection, then send it
+            vim.cmd('normal! "zy')
+            local sel = vim.fn.getreg("z")
+            if sel and sel ~= "" then
+                M.open()
+                M.send(sel, { context = { "selection" } })
             end
         end, { desc = "[ai-chat] Send selection" })
     end
+
+    if keys.quick_explain then
+        map("v", keys.quick_explain, function()
+            vim.cmd('normal! "zy')
+            local sel = vim.fn.getreg("z")
+            if sel and sel ~= "" then
+                M.open()
+                M.send("Explain this code:\n\n" .. sel)
+            end
+        end, { desc = "[ai-chat] Explain selection" })
+    end
+
+    if keys.quick_fix then
+        map("v", keys.quick_fix, function()
+            vim.cmd('normal! "zy')
+            local sel = vim.fn.getreg("z")
+            if sel and sel ~= "" then
+                M.open()
+                M.send("Fix this code:\n\n" .. sel)
+            end
+        end, { desc = "[ai-chat] Fix selection" })
+    end
+
     if keys.focus_input then
         map("n", keys.focus_input, function()
             M.open()
-            if state.ui.input_winid and vim.api.nvim_win_is_valid(state.ui.input_winid) then
-                vim.api.nvim_set_current_win(state.ui.input_winid)
-                vim.cmd("startinsert")
-            end
+            require("ai-chat.ui.input").focus()
         end, { desc = "[ai-chat] Focus input" })
+    end
+
+    if keys.switch_model then
+        map("n", keys.switch_model, function() M.set_model() end, { desc = "[ai-chat] Switch model" })
+    end
+
+    if keys.switch_provider then
+        map("n", keys.switch_provider, function() M.set_provider() end, { desc = "[ai-chat] Switch provider" })
     end
 end
 
@@ -510,7 +612,8 @@ function M._setup_highlights()
 end
 
 function M._update_winbar()
-    if state.ui.is_open and state.ui.chat_winid then
+    if state.ui.is_open and state.ui.chat_winid
+        and vim.api.nvim_win_is_valid(state.ui.chat_winid) then
         require("ai-chat.ui.chat").update_winbar(
             state.ui.chat_winid,
             state.conversation
@@ -519,10 +622,10 @@ function M._update_winbar()
 end
 
 function M._uuid()
-    local random = math.random
+    math.randomseed(os.time() + os.clock() * 1000)
     local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
     return string.gsub(template, "[xy]", function(c)
-        local v = (c == "x") and random(0, 0xf) or random(8, 0xb)
+        local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
         return string.format("%x", v)
     end)
 end

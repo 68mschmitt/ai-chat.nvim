@@ -3,12 +3,12 @@
 
 local M = {}
 
-local slash = require("ai-chat.commands.slash")
-
 --- Handle a slash command.
 ---@param text string  The full input text (starts with "/")
 ---@param state table  Plugin state (from init.lua)
 function M.handle(text, state)
+    local slash = require("ai-chat.commands.slash")
+
     local cmd, args = text:match("^/(%S+)%s*(.*)")
     if not cmd then
         vim.notify("[ai-chat] Invalid command: " .. text, vim.log.levels.WARN)
@@ -21,7 +21,10 @@ function M.handle(text, state)
     if handler then
         handler(args, state)
     else
-        vim.notify("[ai-chat] Unknown command: /" .. cmd .. ". Type /help for available commands.", vim.log.levels.WARN)
+        vim.notify(
+            "[ai-chat] Unknown command: /" .. cmd .. ". Type /help for available commands.",
+            vim.log.levels.WARN
+        )
     end
 end
 

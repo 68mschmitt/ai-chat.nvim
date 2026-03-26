@@ -6,26 +6,28 @@ local M = {}
 local state = {
     bufnr = nil,
     winid = nil,
-    history = {},      -- Previous messages for recall
-    history_index = 0, -- Current position in history
+    history = {},
+    history_index = 0,
 }
+
+local ns_id = vim.api.nvim_create_namespace("ai-chat-input")
 
 --- Create the input area as a horizontal split within the chat window.
 ---@param parent_winid number  The chat window to split within
 ---@param height number  Initial height in lines
 ---@return { bufnr: number, winid: number }
 function M.create(parent_winid, height)
-    -- Focus the parent (chat) window
+    -- Focus the parent (chat) window so the split happens inside it
     vim.api.nvim_set_current_win(parent_winid)
 
-    -- Create a horizontal split at the bottom
-    vim.cmd("botright " .. height .. "split")
+    -- Split below the current window (inside the chat column)
+    vim.cmd("belowright " .. height .. "split")
     local winid = vim.api.nvim_get_current_win()
 
     -- Create scratch buffer for input
     local bufnr = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_win_set_buf(winid, bufnr)
-    vim.api.nvim_buf_set_name(bufnr, "ai-chat://input")
+    pcall(vim.api.nvim_buf_set_name, bufnr, "ai-chat://input")
 
     -- Buffer options
     vim.bo[bufnr].buftype = "nofile"
@@ -42,22 +44,13 @@ function M.create(parent_winid, height)
     vim.wo[winid].linebreak = true
     vim.wo[winid].cursorline = false
     vim.wo[winid].winfixheight = true
-
-    -- Prompt indicator via extmark
-    local ns = vim.api.nvim_create_namespace("ai-chat-input")
-    vim.api.nvim_buf_set_extmark(bufnr, ns, 0, 0, {
-        virt_text = { { "> ", "AiChatInputPrompt" } },
-        virt_text_pos = "inline",
-    })
+    vim.wo[winid].winbar = " > input"
 
     -- Set up keymaps
     M._setup_keymaps(bufnr)
 
     state.bufnr = bufnr
     state.winid = winid
-
-    -- Return focus to previous window
-    vim.cmd("wincmd p")
 
     return { bufnr = bufnr, winid = winid }
 end
@@ -99,58 +92,53 @@ function M.clear()
         return
     end
     vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, { "" })
-
-    -- Re-add prompt extmark
-    local ns = vim.api.nvim_create_namespace("ai-chat-input")
-    vim.api.nvim_buf_clear_namespace(state.bufnr, ns, 0, -1)
-    vim.api.nvim_buf_set_extmark(state.bufnr, ns, 0, 0, {
-        virt_text = { { "> ", "AiChatInputPrompt" } },
-        virt_text_pos = "inline",
-    })
 end
 
 --- Set up buffer-local keymaps for the input area.
 ---@param bufnr number
 function M._setup_keymaps(bufnr)
-    local map = function(mode, lhs, rhs, desc)
-        vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = "[ai-chat] " .. desc })
+    local opts = function(desc)
+        return { buffer = bufnr, nowait = true, desc = "[ai-chat] " .. desc }
     end
 
     -- Normal mode: Enter sends
-    map("n", "<CR>", function()
+    vim.keymap.set("n", "<CR>", function()
         M._submit()
-    end, "Send message")
+    end, opts("Send message"))
 
-    -- Insert mode: Ctrl+Enter sends
-    map("i", "<C-CR>", function()
+    -- Insert mode: Ctrl+Enter sends (terminal must support CSI u or similar)
+    vim.keymap.set("i", "<C-CR>", function()
         vim.cmd("stopinsert")
         M._submit()
-    end, "Send message")
+    end, opts("Send message"))
+
+    -- Also map Shift-Enter in insert mode as alternative send
+    vim.keymap.set("i", "<S-CR>", function()
+        vim.cmd("stopinsert")
+        M._submit()
+    end, opts("Send message"))
 
     -- Cancel
-    map({ "n", "i" }, "<C-c>", function()
+    vim.keymap.set({ "n", "i" }, "<C-c>", function()
         require("ai-chat").cancel()
-    end, "Cancel generation")
+    end, opts("Cancel generation"))
 
     -- History recall
-    map("n", "<Up>", function()
+    vim.keymap.set("n", "<Up>", function()
         M._recall("prev")
-    end, "Previous message")
+    end, opts("Previous message"))
 
-    map("n", "<Down>", function()
+    vim.keymap.set("n", "<Down>", function()
         M._recall("next")
-    end, "Next message")
+    end, opts("Next message"))
 
     -- Close panel on q when input is empty
-    map("n", "q", function()
+    vim.keymap.set("n", "q", function()
         local text = M.get_text()
-        if not text or text == "" then
+        if not text then
             require("ai-chat").close()
-        else
-            -- Normal q behavior (record macro) if there's text
-            vim.api.nvim_feedkeys("q", "n", false)
         end
-    end, "Close panel (when empty)")
+    end, opts("Close panel (when empty)"))
 end
 
 --- Submit the current input.
@@ -162,7 +150,7 @@ function M._submit()
     table.insert(state.history, text)
     state.history_index = #state.history + 1
 
-    -- Send
+    -- Send via the main module
     require("ai-chat").send(text)
 end
 
@@ -170,12 +158,7 @@ end
 ---@param direction "prev"|"next"
 function M._recall(direction)
     if #state.history == 0 then return end
-
-    -- Only recall if input is empty or already recalling
-    local current = M.get_text()
-    if current and current ~= "" and state.history_index > #state.history then
-        return
-    end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
 
     if direction == "prev" then
         state.history_index = math.max(1, state.history_index - 1)

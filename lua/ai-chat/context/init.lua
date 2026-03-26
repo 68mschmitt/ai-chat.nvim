@@ -3,29 +3,47 @@
 
 local M = {}
 
-local collectors = {
-    buffer = require("ai-chat.context.buffer"),
-    selection = require("ai-chat.context.selection"),
-    diagnostics = require("ai-chat.context.diagnostics"),
-    diff = require("ai-chat.context.diff"),
-    file = require("ai-chat.context.file"),
-}
+-- Lazy-loaded collector references
+local _collectors = nil
+
+local function get_collectors()
+    if _collectors then return _collectors end
+    _collectors = {
+        buffer = require("ai-chat.context.buffer"),
+        selection = require("ai-chat.context.selection"),
+    }
+    -- Optionally load extended collectors (diagnostics/diff/file are v0.2+
+    -- but we load them if present to avoid breaking imports)
+    local ok_diag, diag = pcall(require, "ai-chat.context.diagnostics")
+    if ok_diag then _collectors.diagnostics = diag end
+    local ok_diff, diff = pcall(require, "ai-chat.context.diff")
+    if ok_diff then _collectors.diff = diff end
+    local ok_file, file = pcall(require, "ai-chat.context.file")
+    if ok_file then _collectors.file = file end
+    return _collectors
+end
 
 --- Parse @context tags from a message and collect their content.
 ---@param text string  The user's message text
----@param explicit_contexts? string[]  Explicitly requested contexts (e.g., from opts)
+---@param explicit_contexts? string[]  Explicitly requested context names (e.g., {"buffer"})
 ---@return AiChatContext[]
 function M.collect(text, explicit_contexts)
     local results = {}
+    local collectors = get_collectors()
 
     -- Parse @tags from the message text
     local parsed_tags = M._parse_tags(text)
 
-    -- Merge with explicit contexts
+    -- Merge with explicit contexts (deduplicate by name)
     if explicit_contexts then
-        for _, ctx in ipairs(explicit_contexts) do
-            if not vim.tbl_contains(parsed_tags, ctx) then
-                table.insert(parsed_tags, { name = ctx })
+        local seen = {}
+        for _, tag in ipairs(parsed_tags) do
+            seen[tag.name] = true
+        end
+        for _, name in ipairs(explicit_contexts) do
+            if not seen[name] then
+                table.insert(parsed_tags, { name = name })
+                seen[name] = true
             end
         end
     end
@@ -34,8 +52,8 @@ function M.collect(text, explicit_contexts)
     for _, tag in ipairs(parsed_tags) do
         local collector = collectors[tag.name]
         if collector then
-            local ctx = collector.collect(tag.args)
-            if ctx then
+            local ok, ctx = pcall(collector.collect, tag.args)
+            if ok and ctx then
                 table.insert(results, ctx)
             end
         end
@@ -51,7 +69,7 @@ end
 function M._parse_tags(text)
     local tags = {}
 
-    -- Match @word patterns at the start of the text or after whitespace
+    -- Match @word patterns
     for tag in text:gmatch("@(%S+)") do
         -- Handle @file:path/to/file.lua
         local name, args = tag:match("^(%w+):(.+)$")
@@ -69,13 +87,14 @@ end
 ---@param text string
 ---@return string
 function M.strip_tags(text)
+    -- Remove @word and @word:args patterns, then trim leading whitespace
     return text:gsub("@%S+%s*", ""):gsub("^%s+", "")
 end
 
 --- List all available context types.
 ---@return string[]
 function M.available()
-    return vim.tbl_keys(collectors)
+    return vim.tbl_keys(get_collectors())
 end
 
 return M

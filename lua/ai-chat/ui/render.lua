@@ -7,19 +7,32 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("ai-chat-render")
 
+--- Check if the buffer is "empty" (single empty line from initialization).
+---@param bufnr number
+---@return boolean
+local function buf_is_empty(bufnr)
+    local lc = vim.api.nvim_buf_line_count(bufnr)
+    if lc ~= 1 then return false end
+    local first = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)
+    return first[1] == ""
+end
+
 --- Render a single message into the chat buffer.
 ---@param bufnr number  Chat buffer
 ---@param message table  { role, content, context?, usage?, model? }
 function M.render_message(bufnr, message)
     vim.bo[bufnr].modifiable = true
 
-    local line_count = vim.api.nvim_buf_line_count(bufnr)
-    local start_line = line_count
+    local start_line
 
-    -- Add separator if not first message
-    if start_line > 1 then
-        vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, { "" })
-        start_line = start_line + 1
+    if buf_is_empty(bufnr) then
+        -- Replace the initial empty line
+        start_line = 0
+    else
+        -- Append after existing content with a blank separator
+        local lc = vim.api.nvim_buf_line_count(bufnr)
+        vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
+        start_line = lc + 1
     end
 
     -- Message header
@@ -35,14 +48,14 @@ function M.render_message(bufnr, message)
     end
     if message.usage then
         table.insert(meta_parts, string.format(
-            "%d→%d",
+            "%d->%d",
             message.usage.input_tokens or 0,
             message.usage.output_tokens or 0
         ))
     end
     if #meta_parts > 0 then
         vim.api.nvim_buf_set_extmark(bufnr, ns, start_line, 0, {
-            virt_text = { { " [" .. table.concat(meta_parts, " · ") .. "]", "AiChatMeta" } },
+            virt_text = { { " [" .. table.concat(meta_parts, " | ") .. "]", "AiChatMeta" } },
             virt_text_pos = "eol",
         })
     end
@@ -89,15 +102,17 @@ end
 ---@param bufnr number
 ---@return { append: fun(text: string), finish: fun(usage: AiChatUsage), error: fun(err: AiChatError) }
 function M.begin_response(bufnr)
-    -- Add assistant header
     vim.bo[bufnr].modifiable = true
-    local line_count = vim.api.nvim_buf_line_count(bufnr)
-    local header_line = line_count
 
-    -- Separator
-    if header_line > 1 then
-        vim.api.nvim_buf_set_lines(bufnr, header_line, header_line, false, { "" })
-        header_line = header_line + 1
+    local header_line
+
+    if buf_is_empty(bufnr) then
+        header_line = 0
+    else
+        local lc = vim.api.nvim_buf_line_count(bufnr)
+        -- Add blank separator
+        vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
+        header_line = lc + 1
     end
 
     -- Header
@@ -107,13 +122,13 @@ function M.begin_response(bufnr)
         hl_group = "AiChatAssistant",
     })
 
+    -- Initialize the first content line
     local write_line = header_line + 1
     vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
     vim.bo[bufnr].modifiable = false
 
-    -- Line buffer for accumulating partial lines
+    -- Line buffer for accumulating partial lines during streaming
     local line_buffer = ""
-    local chat_winid = nil -- Will find from state
 
     return {
         --- Append a streamed chunk of text.
@@ -127,27 +142,27 @@ function M.begin_response(bufnr)
                 line_buffer = line_buffer .. text
                 local lines = vim.split(line_buffer, "\n", { plain = true })
 
-                -- Write complete lines
+                -- Process all complete lines (all except the last fragment)
                 for i = 1, #lines - 1 do
+                    -- Replace the current write_line with the complete line
                     vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { lines[i] })
                     write_line = write_line + 1
-                    -- Add empty line for next content
+                    -- Insert a fresh empty line for the next content
                     vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
                 end
 
-                -- Update incomplete line
+                -- The last element is the incomplete trailing fragment
                 line_buffer = lines[#lines]
-                if line_buffer ~= "" then
-                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
-                end
+                -- Update the current line with the fragment (overwrite in place)
+                vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
 
                 vim.bo[bufnr].modifiable = false
 
-                -- Auto-scroll (find chat window)
+                -- Auto-scroll: find the chat window showing this buffer
                 for _, win in ipairs(vim.api.nvim_list_wins()) do
                     if vim.api.nvim_win_get_buf(win) == bufnr then
-                        local last_line = vim.api.nvim_buf_line_count(bufnr)
-                        pcall(vim.api.nvim_win_set_cursor, win, { last_line, 0 })
+                        local last = vim.api.nvim_buf_line_count(bufnr)
+                        pcall(vim.api.nvim_win_set_cursor, win, { last, 0 })
                         break
                     end
                 end
@@ -160,7 +175,7 @@ function M.begin_response(bufnr)
             vim.schedule(function()
                 if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
-                -- Flush remaining line buffer
+                -- Flush any remaining content in line_buffer
                 if line_buffer ~= "" then
                     vim.bo[bufnr].modifiable = true
                     vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
@@ -168,16 +183,16 @@ function M.begin_response(bufnr)
                     vim.bo[bufnr].modifiable = false
                 end
 
-                -- Add usage metadata to the header
+                -- Add usage metadata to the header line
                 if usage then
+                    local meta = string.format("%d->%d", usage.input_tokens, usage.output_tokens)
                     local cost = require("ai-chat.util.costs").estimate(
-                        require("ai-chat").get_config().default_provider,
-                        require("ai-chat").get_config().default_model,
+                        require("ai-chat.config").get().default_provider,
+                        require("ai-chat.config").get().default_model,
                         usage
                     )
-                    local meta = string.format("%d→%d", usage.input_tokens, usage.output_tokens)
                     if cost > 0 then
-                        meta = meta .. string.format(" · $%.4f", cost)
+                        meta = meta .. string.format(" | $%.4f", cost)
                     end
                     vim.api.nvim_buf_set_extmark(bufnr, ns, header_line, 0, {
                         virt_text = { { " [" .. meta .. "]", "AiChatMeta" } },
@@ -199,21 +214,21 @@ function M.begin_response(bufnr)
                 vim.bo[bufnr].modifiable = true
 
                 local error_lines = {
-                    "--- Error " .. string.rep("-", 50),
-                    "  " .. (err.message or "Unknown error"),
+                    string.rep("-", 50),
+                    "  ERROR: " .. (err.message or "Unknown error"),
                 }
 
                 if err.retryable then
-                    table.insert(error_lines, "  Press <CR> to retry, <C-c> to cancel.")
+                    table.insert(error_lines, "  (retryable)")
                 end
 
-                table.insert(error_lines, string.rep("-", 60))
+                table.insert(error_lines, string.rep("-", 50))
 
-                vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, error_lines)
+                vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, error_lines)
 
                 -- Highlight error lines
                 for i = 0, #error_lines - 1 do
-                    vim.api.nvim_buf_set_extmark(bufnr, ns, write_line + i, 0, {
+                    pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, write_line + i, 0, {
                         line_hl_group = "AiChatError",
                     })
                 end
@@ -229,41 +244,47 @@ end
 ---@param winid number
 ---@return { language: string?, content: string, start_line: number, end_line: number }?
 function M.get_code_block_at_cursor(bufnr, winid)
+    if not vim.api.nvim_win_is_valid(winid) then return nil end
+    if not vim.api.nvim_buf_is_valid(bufnr) then return nil end
+
     local cursor = vim.api.nvim_win_get_cursor(winid)
-    local cursor_line = cursor[1] - 1 -- 0-indexed
+    local cursor_line = cursor[1] - 1 -- Convert to 0-indexed
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-    -- Find code block boundaries
-    local block_start = nil
-    local block_end = nil
-    local language = nil
+    -- Scan through all lines to find code blocks
+    -- Track opening and closing fences
+    local blocks = {}
+    local current_block = nil
 
     for i, line in ipairs(lines) do
         local idx = i - 1 -- 0-indexed
-        local lang = line:match("^```(%w+)")
-        if lang then
-            if idx <= cursor_line then
-                block_start = idx
-                language = lang
-                block_end = nil -- Reset, looking for closing fence
+        if not current_block then
+            local lang = line:match("^```(%w+)")
+            if lang then
+                current_block = { start = idx, language = lang }
             end
-        elseif line:match("^```%s*$") then
-            if block_start and not block_end then
-                block_end = idx
-                if cursor_line >= block_start and cursor_line <= block_end then
-                    -- Found the block containing cursor
-                    local content_lines = {}
-                    for j = block_start + 2, block_end do -- +2 to skip fence line (1-indexed)
-                        table.insert(content_lines, lines[j])
-                    end
-                    return {
-                        language = language,
-                        content = table.concat(content_lines, "\n"),
-                        start_line = block_start,
-                        end_line = block_end,
-                    }
-                end
+        else
+            if line:match("^```%s*$") then
+                current_block.finish = idx
+                table.insert(blocks, current_block)
+                current_block = nil
             end
+        end
+    end
+
+    -- Find which block contains the cursor
+    for _, block in ipairs(blocks) do
+        if cursor_line >= block.start and cursor_line <= block.finish then
+            local content_lines = {}
+            for j = block.start + 2, block.finish do -- +2: skip fence line (1-indexed)
+                table.insert(content_lines, lines[j])
+            end
+            return {
+                language = block.language,
+                content = table.concat(content_lines, "\n"),
+                start_line = block.start,
+                end_line = block.finish,
+            }
         end
     end
 
@@ -271,29 +292,39 @@ function M.get_code_block_at_cursor(bufnr, winid)
 end
 
 --- Apply syntax highlighting to code blocks in a range of lines.
+--- Uses extmarks to apply highlight groups to fenced code block regions.
 ---@param bufnr number
 ---@param from_line number  Start line (0-indexed)
 ---@param to_line number    End line (0-indexed, exclusive)
 function M._highlight_code_blocks(bufnr, from_line, to_line)
     local lines = vim.api.nvim_buf_get_lines(bufnr, from_line, to_line, false)
     local in_block = false
-    local block_lang = nil
 
     for i, line in ipairs(lines) do
-        local lang = line:match("^```(%w+)")
-        if lang then
-            in_block = true
-            block_lang = lang
-        elseif line:match("^```%s*$") and in_block then
-            in_block = false
-            block_lang = nil
+        local abs_line = from_line + i - 1
+        if not in_block then
+            local lang = line:match("^```(%w+)")
+            if lang then
+                in_block = true
+                -- Dim the fence line
+                pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, abs_line, 0, {
+                    line_hl_group = "AiChatMeta",
+                })
+            end
+        else
+            if line:match("^```%s*$") then
+                in_block = false
+                pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, abs_line, 0, {
+                    line_hl_group = "AiChatMeta",
+                })
+            end
         end
     end
 
-    -- Treesitter injection will handle actual syntax highlighting
-    -- if the treesitter integration is available. The filetype "aichat"
-    -- can have injection queries that detect ```lang blocks.
-    -- Fallback: no highlighting (still readable).
+    -- Treesitter injection handles actual language-specific highlighting
+    -- for the aichat filetype if treesitter is available.
+    -- This is a graceful degradation: without treesitter, code blocks
+    -- are still readable, just without language-specific colors.
 end
 
 return M
