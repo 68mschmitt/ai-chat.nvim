@@ -56,7 +56,7 @@ M.defaults = {
         temperature = 0.7,
         max_tokens = 4096,
         thinking = false,
-        show_thinking = true,  -- render thinking blocks (false = strip entirely)
+        show_thinking = true, -- render thinking blocks (false = strip entirely)
         auto_scroll = true,
         show_context = true,
     },
@@ -133,12 +133,16 @@ end
 ---@param path string  Dot-separated path (e.g., "chat.thinking")
 ---@param value any    New value
 function M.set(path, value)
-    if not resolved then return end
+    if not resolved then
+        return
+    end
     local keys = vim.split(path, ".", { plain = true })
     local target = resolved
     for i = 1, #keys - 1 do
         target = target[keys[i]]
-        if type(target) ~= "table" then return end
+        if type(target) ~= "table" then
+            return
+        end
     end
     target[keys[#keys]] = value
 end
@@ -189,8 +193,7 @@ end
 ---@return string
 function M.history_path(config)
     config = config or M.get()
-    return config.history.storage_path
-        or (vim.fn.stdpath("data") .. "/ai-chat/history")
+    return config.history.storage_path or (vim.fn.stdpath("data") .. "/ai-chat/history")
 end
 
 --- Get the log file path, with default fallback.
@@ -198,8 +201,7 @@ end
 ---@return string
 function M.log_path(config)
     config = config or M.get()
-    return config.log.file
-        or (vim.fn.stdpath("data") .. "/ai-chat/log.txt")
+    return config.log.file or (vim.fn.stdpath("data") .. "/ai-chat/log.txt")
 end
 
 return M

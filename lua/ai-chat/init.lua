@@ -423,32 +423,41 @@ function M.show_keys()
     local keys = initialized and require("ai-chat.config").get().keys or require("ai-chat.config").defaults.keys
     local lines = { "ai-chat.nvim Keybindings", string.rep("-", 40) }
     local sections = {
-        { "Global", {
-            { "toggle", "Toggle chat panel" },
-            { "send_selection", "Send selection to chat" },
-            { "quick_explain", "Explain selection" },
-            { "quick_fix", "Fix selection" },
-            { "focus_input", "Focus chat input" },
-            { "switch_model", "Switch model" },
-            { "switch_provider", "Switch provider" },
-        } },
-        { "Chat Buffer", {
-            { "close", "Close panel" },
-            { "cancel", "Cancel generation" },
-            { "next_message", "Next message" },
-            { "prev_message", "Previous message" },
-            { "next_code_block", "Next code block" },
-            { "prev_code_block", "Previous code block" },
-            { "yank_code_block", "Yank code block" },
-            { "apply_code_block", "Apply code block (diff)" },
-            { "open_code_block", "Open code block in split" },
-        } },
-        { "Input", {
-            { "submit_normal", "Send message (normal)" },
-            { "submit_insert", "Send message (insert)" },
-            { "recall_prev", "Previous in history" },
-            { "recall_next", "Next in history" },
-        } },
+        {
+            "Global",
+            {
+                { "toggle", "Toggle chat panel" },
+                { "send_selection", "Send selection to chat" },
+                { "quick_explain", "Explain selection" },
+                { "quick_fix", "Fix selection" },
+                { "focus_input", "Focus chat input" },
+                { "switch_model", "Switch model" },
+                { "switch_provider", "Switch provider" },
+            },
+        },
+        {
+            "Chat Buffer",
+            {
+                { "close", "Close panel" },
+                { "cancel", "Cancel generation" },
+                { "next_message", "Next message" },
+                { "prev_message", "Previous message" },
+                { "next_code_block", "Next code block" },
+                { "prev_code_block", "Previous code block" },
+                { "yank_code_block", "Yank code block" },
+                { "apply_code_block", "Apply code block (diff)" },
+                { "open_code_block", "Open code block in split" },
+            },
+        },
+        {
+            "Input",
+            {
+                { "submit_normal", "Send message (normal)" },
+                { "submit_insert", "Send message (insert)" },
+                { "recall_prev", "Previous in history" },
+                { "recall_next", "Next in history" },
+            },
+        },
     }
     for _, section in ipairs(sections) do
         table.insert(lines, "")

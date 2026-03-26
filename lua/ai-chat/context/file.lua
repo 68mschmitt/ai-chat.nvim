@@ -7,7 +7,9 @@ local M = {}
 ---@param args? string  File path (relative or absolute)
 ---@return AiChatContext?
 function M.collect(args)
-    if not args or args == "" then return nil end
+    if not args or args == "" then
+        return nil
+    end
 
     local path = vim.fn.expand(args)
 
@@ -18,7 +20,9 @@ function M.collect(args)
     end
 
     local lines = vim.fn.readfile(path)
-    if #lines == 0 then return nil end
+    if #lines == 0 then
+        return nil
+    end
 
     local content = table.concat(lines, "\n")
     local filename = vim.fn.fnamemodify(path, ":t")

@@ -9,7 +9,9 @@ local M = {}
 function M.collect(args)
     -- Find the "code" buffer (not the chat or input buffer)
     local bufnr = M._find_code_buffer()
-    if not bufnr then return nil end
+    if not bufnr then
+        return nil
+    end
 
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     local content = table.concat(lines, "\n")
@@ -48,9 +50,7 @@ function M._find_code_buffer()
 
     -- Search for any loaded code buffer
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_is_loaded(buf)
-            and vim.bo[buf].buftype == ""
-            and vim.api.nvim_buf_get_name(buf) ~= "" then
+        if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
             return buf
         end
     end

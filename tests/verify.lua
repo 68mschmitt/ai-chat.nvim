@@ -169,8 +169,12 @@ test("render full conversation", function()
     local found_user = false
     local found_assistant = false
     for _, line in ipairs(lines) do
-        if line == "## You" then found_user = true end
-        if line == "## Assistant" then found_assistant = true end
+        if line == "## You" then
+            found_user = true
+        end
+        if line == "## Assistant" then
+            found_assistant = true
+        end
     end
     assert(found_user, "should contain ## You")
     assert(found_assistant, "should contain ## Assistant")
@@ -264,8 +268,12 @@ test("bold concealment applies extmarks", function()
     local has_bold_hl = false
     for _, mark in ipairs(marks) do
         local details = mark[4]
-        if details.conceal == "" then has_conceal = true end
-        if details.hl_group == "@markup.strong" then has_bold_hl = true end
+        if details.conceal == "" then
+            has_conceal = true
+        end
+        if details.hl_group == "@markup.strong" then
+            has_bold_hl = true
+        end
     end
     assert(has_conceal, "should have conceal extmarks for ** delimiters")
     assert(has_bold_hl, "should have @markup.strong highlight extmark")
@@ -282,7 +290,7 @@ test("bold concealment skips code blocks", function()
 
     render.render_message(buf, {
         role = "assistant",
-        content = "```python\nx = \"**not bold**\"\n```",
+        content = '```python\nx = "**not bold**"\n```',
         context = {},
     })
 
@@ -334,7 +342,9 @@ test("multiple bold segments on one line", function()
     local bold_count = 0
     for _, mark in ipairs(marks) do
         local details = mark[4]
-        if details.hl_group == "@markup.strong" then bold_count = bold_count + 1 end
+        if details.hl_group == "@markup.strong" then
+            bold_count = bold_count + 1
+        end
     end
     assert(bold_count == 2, "should have 2 bold highlight extmarks, got: " .. bold_count)
 
@@ -388,7 +398,9 @@ test("language-less code blocks get fence highlighting", function()
     local has_meta = false
     for _, mark in ipairs(marks) do
         local details = mark[4]
-        if details.line_hl_group == "AiChatMeta" then has_meta = true end
+        if details.line_hl_group == "AiChatMeta" then
+            has_meta = true
+        end
     end
     assert(has_meta, "language-less fence should have AiChatMeta highlight")
 

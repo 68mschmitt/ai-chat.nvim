@@ -28,7 +28,9 @@ end
 ---@param name string
 ---@return boolean
 function M.exists(name)
-    if providers[name] then return true end
+    if providers[name] then
+        return true
+    end
     local mod_name = "ai-chat.providers." .. name
     -- Check if the module file exists without loading and caching it
     local found = package.searchpath(mod_name, package.path)

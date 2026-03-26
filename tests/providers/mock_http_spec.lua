@@ -23,7 +23,10 @@ describe("provider streaming (mocked)", function()
                     vim.schedule(function()
                         opts.stdout(nil, '{"message":{"content":"Hello"},"done":false}\n')
                         opts.stdout(nil, '{"message":{"content":" world"},"done":false}\n')
-                        opts.stdout(nil, '{"message":{"content":"!"},"done":true,"prompt_eval_count":10,"eval_count":3}\n')
+                        opts.stdout(
+                            nil,
+                            '{"message":{"content":"!"},"done":true,"prompt_eval_count":10,"eval_count":3}\n'
+                        )
                     end)
                 end
 

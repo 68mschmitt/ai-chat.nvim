@@ -7,7 +7,9 @@ local M = {}
 local _collectors = nil
 
 local function get_collectors()
-    if _collectors then return _collectors end
+    if _collectors then
+        return _collectors
+    end
     _collectors = {
         buffer = require("ai-chat.context.buffer"),
         selection = require("ai-chat.context.selection"),
@@ -15,11 +17,17 @@ local function get_collectors()
     -- Optionally load extended collectors (diagnostics/diff/file are v0.2+
     -- but we load them if present to avoid breaking imports)
     local ok_diag, diag = pcall(require, "ai-chat.context.diagnostics")
-    if ok_diag then _collectors.diagnostics = diag end
+    if ok_diag then
+        _collectors.diagnostics = diag
+    end
     local ok_diff, diff = pcall(require, "ai-chat.context.diff")
-    if ok_diff then _collectors.diff = diff end
+    if ok_diff then
+        _collectors.diff = diff
+    end
     local ok_file, file = pcall(require, "ai-chat.context.file")
-    if ok_file then _collectors.file = file end
+    if ok_file then
+        _collectors.file = file
+    end
     return _collectors
 end
 

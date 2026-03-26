@@ -127,10 +127,10 @@ describe("conversation._truncate_to_budget", function()
     it("drops oldest messages first", function()
         local messages = {
             { role = "system", content = "system prompt" },
-            { role = "user", content = string.rep("word ", 500) },   -- ~665 tokens
+            { role = "user", content = string.rep("word ", 500) }, -- ~665 tokens
             { role = "assistant", content = string.rep("word ", 500) }, -- ~665 tokens
-            { role = "user", content = string.rep("word ", 500) },   -- ~665 tokens
-            { role = "assistant", content = "short response" },      -- ~3 tokens
+            { role = "user", content = string.rep("word ", 500) }, -- ~665 tokens
+            { role = "assistant", content = "short response" }, -- ~3 tokens
         }
         local dropped = conversation._truncate_to_budget(messages, 700)
         assert.truthy(dropped, "should have truncated")

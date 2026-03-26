@@ -39,10 +39,14 @@ function M.read(id)
     end
 
     local lines = vim.fn.readfile(filepath)
-    if #lines == 0 then return nil end
+    if #lines == 0 then
+        return nil
+    end
 
     local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
-    if not ok then return nil end
+    if not ok then
+        return nil
+    end
 
     return data
 end
@@ -92,7 +96,9 @@ end
 --- Prune old conversations if over the limit.
 function M._prune()
     local entries = M.list()
-    if #entries <= max_conversations then return end
+    if #entries <= max_conversations then
+        return
+    end
 
     -- Delete oldest entries beyond the limit
     for i = max_conversations + 1, #entries do

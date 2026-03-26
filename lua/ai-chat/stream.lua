@@ -77,52 +77,55 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
     -- Create stream renderer
     local stream_render = render.begin_response(ui_state.chat_bufnr)
 
-    state.cancel_fn = provider.chat(
-        provider_messages,
-        opts,
-        {
-            on_chunk = function(chunk_text)
-                stream_render.append(chunk_text)
-            end,
+    state.cancel_fn = provider.chat(provider_messages, opts, {
+        on_chunk = function(chunk_text)
+            stream_render.append(chunk_text)
+        end,
 
-            on_done = function(response)
-                state.active = false
-                state.cancel_fn = nil
-                state.retry_count = 0
-                spinner.stop()
+        on_done = function(response)
+            state.active = false
+            state.cancel_fn = nil
+            state.retry_count = 0
+            spinner.stop()
 
-                -- Finalize rendering with actual provider/model for cost calculation
-                stream_render.finish(response.usage, {
-                    provider = opts.provider_name,
-                    model = opts.model,
+            -- Finalize rendering with actual provider/model for cost calculation
+            stream_render.finish(response.usage, {
+                provider = opts.provider_name,
+                model = opts.model,
+            })
+
+            -- Notify coordinator
+            callbacks.on_done(response)
+        end,
+
+        on_error = function(err)
+            spinner.stop()
+
+            -- Check if we should auto-retry
+            if err.retryable and state.retry_count < MAX_RETRIES then
+                state.retry_count = state.retry_count + 1
+                local delay = M._backoff_delay(state.retry_count)
+
+                -- Show retry message in the stream render
+                stream_render.error({
+                    code = err.code,
+                    message = string.format(
+                        "%s (retrying in %ds, attempt %d/%d)",
+                        err.message,
+                        delay,
+                        state.retry_count,
+                        MAX_RETRIES
+                    ),
+                    retryable = true,
                 })
 
-                -- Notify coordinator
-                callbacks.on_done(response)
-            end,
-
-            on_error = function(err)
-                spinner.stop()
-
-                -- Check if we should auto-retry
-                if err.retryable and state.retry_count < MAX_RETRIES then
-                    state.retry_count = state.retry_count + 1
-                    local delay = M._backoff_delay(state.retry_count)
-
-                    -- Show retry message in the stream render
-                    stream_render.error({
-                        code = err.code,
-                        message = string.format(
-                            "%s (retrying in %ds, attempt %d/%d)",
-                            err.message, delay, state.retry_count, MAX_RETRIES
-                        ),
-                        retryable = true,
-                    })
-
-                    -- Schedule retry
-                    local uv = vim.uv or vim.loop
-                    state.retry_timer = uv.new_timer()
-                    state.retry_timer:start(delay * 1000, 0, vim.schedule_wrap(function()
+                -- Schedule retry
+                local uv = vim.uv or vim.loop
+                state.retry_timer = uv.new_timer()
+                state.retry_timer:start(
+                    delay * 1000,
+                    0,
+                    vim.schedule_wrap(function()
                         if state.retry_timer then
                             state.retry_timer:stop()
                             state.retry_timer:close()
@@ -131,19 +134,19 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
                         if state.active then
                             M._do_send(provider, provider_messages, opts, ui_state, callbacks)
                         end
-                    end))
-                else
-                    -- Final failure
-                    state.active = false
-                    state.cancel_fn = nil
-                    state.retry_count = 0
+                    end)
+                )
+            else
+                -- Final failure
+                state.active = false
+                state.cancel_fn = nil
+                state.retry_count = 0
 
-                    stream_render.error(err)
-                    callbacks.on_error(err)
-                end
-            end,
-        }
-    )
+                stream_render.error(err)
+                callbacks.on_error(err)
+            end
+        end,
+    })
 end
 
 --- Calculate exponential backoff delay.

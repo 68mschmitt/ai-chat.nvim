@@ -118,10 +118,10 @@ function M.build_provider_messages(config)
         if msg.role == "user" and msg.context and #msg.context > 0 then
             local context_parts = {}
             for _, ctx in ipairs(msg.context) do
-                table.insert(context_parts, string.format(
-                    "<context type=\"%s\" source=\"%s\">\n%s\n</context>",
-                    ctx.type, ctx.source, ctx.content
-                ))
+                table.insert(
+                    context_parts,
+                    string.format('<context type="%s" source="%s">\n%s\n</context>', ctx.type, ctx.source, ctx.content)
+                )
             end
             content = table.concat(context_parts, "\n\n") .. "\n\n" .. content
         end

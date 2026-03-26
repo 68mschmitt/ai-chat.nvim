@@ -26,7 +26,13 @@ describe("thinking block rendering", function()
         assert(thinking_line, "should find <thinking> tag line")
 
         -- Check that thinking lines have the AiChatThinking highlight
-        local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { thinking_line, 0 }, { thinking_line, -1 }, { details = true })
+        local marks = vim.api.nvim_buf_get_extmarks(
+            buf,
+            ns,
+            { thinking_line, 0 },
+            { thinking_line, -1 },
+            { details = true }
+        )
         local has_thinking_hl = false
         for _, mark in ipairs(marks) do
             local details = mark[4]
@@ -93,7 +99,13 @@ describe("thinking block rendering", function()
         assert(thinking_line, "should find <thinking> tag line")
 
         -- Check for overlay virtual text on the opening tag line
-        local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { thinking_line, 0 }, { thinking_line, -1 }, { details = true })
+        local marks = vim.api.nvim_buf_get_extmarks(
+            buf,
+            ns,
+            { thinking_line, 0 },
+            { thinking_line, -1 },
+            { details = true }
+        )
         local has_overlay = false
         for _, mark in ipairs(marks) do
             local details = mark[4]
@@ -122,8 +134,10 @@ describe("thinking block rendering", function()
             local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { i, 0 }, { i, -1 }, { details = true })
             for _, mark in ipairs(marks) do
                 local details = mark[4]
-                assert(details.line_hl_group ~= "AiChatThinking",
-                    "normal text should NOT have AiChatThinking highlight")
+                assert(
+                    details.line_hl_group ~= "AiChatThinking",
+                    "normal text should NOT have AiChatThinking highlight"
+                )
             end
         end
 
@@ -155,8 +169,12 @@ describe("thinking block rendering", function()
         local found_thinking_open = false
         local found_answer = false
         for _, line in ipairs(lines) do
-            if line:match("<thinking>") then found_thinking_open = true end
-            if line:match("answer is 42") then found_answer = true end
+            if line:match("<thinking>") then
+                found_thinking_open = true
+            end
+            if line:match("answer is 42") then
+                found_answer = true
+            end
         end
         assert(found_thinking_open, "should contain thinking tag")
         assert(found_answer, "should contain the answer text")

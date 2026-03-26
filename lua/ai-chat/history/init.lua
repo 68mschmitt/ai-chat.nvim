@@ -19,7 +19,9 @@ end
 ---@param conversation AiChatConversation
 ---@param name? string  Optional human-readable name
 function M.save(conversation, name)
-    if not config.enabled then return end
+    if not config.enabled then
+        return
+    end
 
     local entry = {
         id = conversation.id,
@@ -63,13 +65,16 @@ function M.browse(callback)
     -- Fallback to vim.ui.select
     local items = {}
     for _, entry in ipairs(entries) do
-        table.insert(items, string.format(
-            "%s — %s (%d messages, %s)",
-            entry.name or "untitled",
-            entry.model or "unknown",
-            entry.message_count or 0,
-            os.date("%Y-%m-%d %H:%M", entry.updated_at or 0)
-        ))
+        table.insert(
+            items,
+            string.format(
+                "%s — %s (%d messages, %s)",
+                entry.name or "untitled",
+                entry.model or "unknown",
+                entry.message_count or 0,
+                os.date("%Y-%m-%d %H:%M", entry.updated_at or 0)
+            )
+        )
     end
 
     vim.ui.select(items, { prompt = "Load conversation:" }, function(_, idx)
@@ -104,13 +109,16 @@ function M._browse_telescope(entries, callback)
     -- For now, fall through to vim.ui.select
     local items = {}
     for _, entry in ipairs(entries) do
-        table.insert(items, string.format(
-            "%s — %s (%d messages, %s)",
-            entry.name or "untitled",
-            entry.model or "unknown",
-            entry.message_count or 0,
-            os.date("%Y-%m-%d %H:%M", entry.updated_at or 0)
-        ))
+        table.insert(
+            items,
+            string.format(
+                "%s — %s (%d messages, %s)",
+                entry.name or "untitled",
+                entry.model or "unknown",
+                entry.message_count or 0,
+                os.date("%Y-%m-%d %H:%M", entry.updated_at or 0)
+            )
+        )
     end
 
     vim.ui.select(items, { prompt = "Load conversation:" }, function(_, idx)

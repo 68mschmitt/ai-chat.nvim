@@ -21,10 +21,7 @@ function M.handle(text, state)
     if handler then
         handler(args, state)
     else
-        vim.notify(
-            "[ai-chat] Unknown command: /" .. cmd .. ". Type /help for available commands.",
-            vim.log.levels.WARN
-        )
+        vim.notify("[ai-chat] Unknown command: /" .. cmd .. ". Type /help for available commands.", vim.log.levels.WARN)
     end
 end
 

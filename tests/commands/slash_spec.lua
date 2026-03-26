@@ -22,8 +22,12 @@ describe("slash commands", function()
         local found_clear = false
         local found_help = false
         for _, name in ipairs(list) do
-            if name == "clear" then found_clear = true end
-            if name == "help" then found_help = true end
+            if name == "clear" then
+                found_clear = true
+            end
+            if name == "help" then
+                found_help = true
+            end
         end
         assert.is_true(found_clear, "should include 'clear'")
         assert.is_true(found_help, "should include 'help'")

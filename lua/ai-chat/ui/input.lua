@@ -159,7 +159,9 @@ end
 --- Submit the current input.
 function M._submit()
     local text = M.get_text()
-    if not text then return end
+    if not text then
+        return
+    end
 
     -- Save to history
     table.insert(state.history, text)
@@ -172,8 +174,12 @@ end
 --- Recall previous/next message from history.
 ---@param direction "prev"|"next"
 function M._recall(direction)
-    if #state.history == 0 then return end
-    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
+    if #state.history == 0 then
+        return
+    end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then
+        return
+    end
 
     if direction == "prev" then
         state.history_index = math.max(1, state.history_index - 1)

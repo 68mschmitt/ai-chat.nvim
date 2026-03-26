@@ -28,7 +28,7 @@ describe("costs.estimate", function()
 
     it("calculates cost for anthropic claude-sonnet-4", function()
         local cost = costs.estimate("anthropic", "claude-sonnet-4-20250514", {
-            input_tokens = 1000000,  -- 1M input
+            input_tokens = 1000000, -- 1M input
             output_tokens = 1000000, -- 1M output
         })
         -- Sonnet pricing: $3/M input, $15/M output = $18

@@ -7,17 +7,17 @@ local M = {}
 -- Source: provider pricing pages. These are approximate.
 local pricing = {
     anthropic = {
-        ["claude-sonnet-4-20250514"]     = { input = 3.00,  output = 15.00 },
-        ["claude-opus-4-20250514"]      = { input = 15.00, output = 75.00 },
-        ["claude-3-5-haiku-20241022"]    = { input = 1.00,  output = 5.00 },
+        ["claude-sonnet-4-20250514"] = { input = 3.00, output = 15.00 },
+        ["claude-opus-4-20250514"] = { input = 15.00, output = 75.00 },
+        ["claude-3-5-haiku-20241022"] = { input = 1.00, output = 5.00 },
     },
     openai_compat = {
-        ["gpt-4o"]                       = { input = 2.50,  output = 10.00 },
-        ["gpt-4o-mini"]                  = { input = 0.15,  output = 0.60 },
-        ["gpt-4-turbo"]                  = { input = 10.00, output = 30.00 },
+        ["gpt-4o"] = { input = 2.50, output = 10.00 },
+        ["gpt-4o-mini"] = { input = 0.15, output = 0.60 },
+        ["gpt-4-turbo"] = { input = 10.00, output = 30.00 },
     },
     -- Ollama and Bedrock: cost handled separately
-    ollama = {},  -- Always $0.00
+    ollama = {}, -- Always $0.00
     bedrock = {}, -- Same as Anthropic pricing (approximately)
 }
 
@@ -33,13 +33,19 @@ local totals = {
 ---@param usage AiChatUsage
 ---@return number  Estimated cost in USD
 function M.estimate(provider, model, usage)
-    if provider == "ollama" then return 0 end
+    if provider == "ollama" then
+        return 0
+    end
 
     local provider_pricing = pricing[provider]
-    if not provider_pricing then return 0 end
+    if not provider_pricing then
+        return 0
+    end
 
     local model_pricing = provider_pricing[model]
-    if not model_pricing then return 0 end
+    if not model_pricing then
+        return 0
+    end
 
     local input_cost = (usage.input_tokens / 1000000) * model_pricing.input
     local output_cost = (usage.output_tokens / 1000000) * model_pricing.output

@@ -51,10 +51,8 @@ function M.check()
     -- Ollama reachability
     if provider_name == "ollama" then
         local host = (config.providers.ollama or {}).host or "http://localhost:11434"
-        local result = vim.system(
-            { "curl", "-s", "--connect-timeout", "3", host .. "/api/tags" },
-            { text = true }
-        ):wait()
+        local result = vim.system({ "curl", "-s", "--connect-timeout", "3", host .. "/api/tags" }, { text = true })
+            :wait()
 
         if result.code == 0 then
             local data_ok, data = pcall(vim.json.decode, result.stdout)
@@ -63,9 +61,15 @@ function M.check()
                 for _, m in ipairs(data.models) do
                     table.insert(model_names, m.name)
                 end
-                vim.health.ok("Ollama running at " .. host
-                    .. " (" .. #data.models .. " models: "
-                    .. table.concat(model_names, ", ") .. ")")
+                vim.health.ok(
+                    "Ollama running at "
+                        .. host
+                        .. " ("
+                        .. #data.models
+                        .. " models: "
+                        .. table.concat(model_names, ", ")
+                        .. ")"
+                )
             else
                 vim.health.ok("Ollama running at " .. host)
             end
@@ -84,10 +88,7 @@ function M.check()
             vim.health.ok("Anthropic API key found")
         else
             local level = provider_name == "anthropic" and "error" or "info"
-            vim.health[level](
-                "Anthropic API key not set",
-                { "Set ANTHROPIC_API_KEY environment variable" }
-            )
+            vim.health[level]("Anthropic API key not set", { "Set ANTHROPIC_API_KEY environment variable" })
         end
     end
 
@@ -98,10 +99,7 @@ function M.check()
             vim.health.ok("OpenAI API key found")
         else
             local level = provider_name == "openai_compat" and "error" or "info"
-            vim.health[level](
-                "OpenAI API key not set",
-                { "Set OPENAI_API_KEY environment variable" }
-            )
+            vim.health[level]("OpenAI API key not set", { "Set OPENAI_API_KEY environment variable" })
         end
     end
 
@@ -111,10 +109,7 @@ function M.check()
             vim.health.ok("AWS CLI found (for Bedrock)")
         else
             local level = provider_name == "bedrock" and "error" or "info"
-            vim.health[level](
-                "AWS CLI not found",
-                { "Install AWS CLI for Bedrock support" }
-            )
+            vim.health[level]("AWS CLI not found", { "Install AWS CLI for Bedrock support" })
         end
     end
 

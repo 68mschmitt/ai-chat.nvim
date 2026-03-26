@@ -9,10 +9,14 @@ local M = {}
 function M.collect(args)
     -- Reuse buffer.lua's robust code-buffer finder
     local bufnr = require("ai-chat.context.buffer")._find_code_buffer()
-    if not bufnr then return nil end
+    if not bufnr then
+        return nil
+    end
 
     local diagnostics = vim.diagnostic.get(bufnr)
-    if #diagnostics == 0 then return nil end
+    if #diagnostics == 0 then
+        return nil
+    end
 
     local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
     local error_count = 0
@@ -30,12 +34,7 @@ function M.collect(args)
             warning_count = warning_count + 1
         end
 
-        table.insert(lines, string.format(
-            "Line %d: [%s] %s",
-            diag.lnum + 1,
-            prefix,
-            diag.message
-        ))
+        table.insert(lines, string.format("Line %d: [%s] %s", diag.lnum + 1, prefix, diag.message))
     end
 
     local content = table.concat(lines, "\n")

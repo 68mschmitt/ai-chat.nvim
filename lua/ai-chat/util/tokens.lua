@@ -9,7 +9,9 @@ local M = {}
 ---@param text string
 ---@return number
 function M.estimate(text)
-    if not text or text == "" then return 0 end
+    if not text or text == "" then
+        return 0
+    end
 
     -- Count words (sequences of non-whitespace)
     local word_count = 0

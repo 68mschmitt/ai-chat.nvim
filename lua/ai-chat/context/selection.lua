@@ -20,7 +20,9 @@ function M.collect(args)
     local end_line = end_pos[2]
 
     local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
-    if #lines == 0 then return nil end
+    if #lines == 0 then
+        return nil
+    end
 
     local content = table.concat(lines, "\n")
     local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")

@@ -12,7 +12,9 @@ local ns = vim.api.nvim_create_namespace("ai-chat-render")
 ---@return boolean
 local function buf_is_empty(bufnr)
     local lc = vim.api.nvim_buf_line_count(bufnr)
-    if lc ~= 1 then return false end
+    if lc ~= 1 then
+        return false
+    end
     local first = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)
     return first[1] == ""
 end
@@ -47,11 +49,10 @@ function M.render_message(bufnr, message)
         end
     end
     if message.usage then
-        table.insert(meta_parts, string.format(
-            "%d->%d",
-            message.usage.input_tokens or 0,
-            message.usage.output_tokens or 0
-        ))
+        table.insert(
+            meta_parts,
+            string.format("%d->%d", message.usage.input_tokens or 0, message.usage.output_tokens or 0)
+        )
     end
     if #meta_parts > 0 then
         vim.api.nvim_buf_set_extmark(bufnr, ns, start_line, 0, {
@@ -138,16 +139,14 @@ function M.begin_response(bufnr)
     ---@param line string
     ---@return boolean
     local function is_thinking_open(line)
-        return line:match("^<think>%s*$") ~= nil
-            or line:match("^<thinking>%s*$") ~= nil
+        return line:match("^<think>%s*$") ~= nil or line:match("^<thinking>%s*$") ~= nil
     end
 
     --- Check if a line is a thinking tag closer.
     ---@param line string
     ---@return boolean
     local function is_thinking_close(line)
-        return line:match("^</think>%s*$") ~= nil
-            or line:match("^</thinking>%s*$") ~= nil
+        return line:match("^</think>%s*$") ~= nil or line:match("^</thinking>%s*$") ~= nil
     end
 
     return {
@@ -155,7 +154,9 @@ function M.begin_response(bufnr)
         ---@param text string
         append = function(text)
             vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(bufnr) then return end
+                if not vim.api.nvim_buf_is_valid(bufnr) then
+                    return
+                end
 
                 vim.bo[bufnr].modifiable = true
 
@@ -221,7 +222,9 @@ function M.begin_response(bufnr)
         ---@param opts? { provider?: string, model?: string }
         finish = function(usage, opts)
             vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(bufnr) then return end
+                if not vim.api.nvim_buf_is_valid(bufnr) then
+                    return
+                end
                 opts = opts or {}
 
                 -- Flush any remaining content in line_buffer
@@ -259,7 +262,9 @@ function M.begin_response(bufnr)
         ---@param err AiChatError
         error = function(err)
             vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(bufnr) then return end
+                if not vim.api.nvim_buf_is_valid(bufnr) then
+                    return
+                end
 
                 vim.bo[bufnr].modifiable = true
 
@@ -294,8 +299,12 @@ end
 ---@param winid number
 ---@return { language: string?, content: string, start_line: number, end_line: number }?
 function M.get_code_block_at_cursor(bufnr, winid)
-    if not vim.api.nvim_win_is_valid(winid) then return nil end
-    if not vim.api.nvim_buf_is_valid(bufnr) then return nil end
+    if not vim.api.nvim_win_is_valid(winid) then
+        return nil
+    end
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+        return nil
+    end
 
     local cursor = vim.api.nvim_win_get_cursor(winid)
     local cursor_line = cursor[1] - 1 -- Convert to 0-indexed
@@ -387,7 +396,9 @@ function M._conceal_bold(bufnr, line_nr, text)
     local pos = 1
     while pos <= #text do
         local s, e = text:find("%*%*(.-)%*%*", pos)
-        if not s then break end
+        if not s then
+            break
+        end
         -- Only process if there's actual content between the delimiters
         if e - s > 3 then
             -- Conceal opening **
@@ -427,7 +438,9 @@ end
 ---@return boolean
 local function is_thinking_open_tag(line)
     for _, pat in ipairs(thinking_open_pats) do
-        if line:match(pat) then return true end
+        if line:match(pat) then
+            return true
+        end
     end
     return false
 end
@@ -437,7 +450,9 @@ end
 ---@return boolean
 local function is_thinking_close_tag(line)
     for _, pat in ipairs(thinking_close_pats) do
-        if line:match(pat) then return true end
+        if line:match(pat) then
+            return true
+        end
     end
     return false
 end
@@ -452,7 +467,9 @@ end
 ---@param from_line number  Start line (0-indexed)
 ---@param to_line number    End line (0-indexed, exclusive)
 function M._process_thinking_blocks(bufnr, from_line, to_line)
-    local ok, cfg = pcall(function() return require("ai-chat.config").get() end)
+    local ok, cfg = pcall(function()
+        return require("ai-chat.config").get()
+    end)
     local show_thinking = true
     if ok and cfg and cfg.chat then
         show_thinking = cfg.chat.show_thinking ~= false
@@ -477,7 +494,9 @@ function M._process_thinking_blocks(bufnr, from_line, to_line)
         end
     end
 
-    if #blocks == 0 then return end
+    if #blocks == 0 then
+        return
+    end
 
     if not show_thinking then
         -- Strip thinking blocks entirely (set lines to empty, then they'll

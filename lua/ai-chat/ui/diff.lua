@@ -98,9 +98,7 @@ function M._find_target_buffer(block)
 
     -- Try the most recently used non-special buffer
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_is_loaded(buf)
-            and vim.bo[buf].buftype == ""
-            and vim.api.nvim_buf_get_name(buf) ~= "" then
+        if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
             return buf
         end
     end

@@ -84,7 +84,9 @@ end
 ---@param winid number
 ---@param conversation AiChatConversation
 function M.update_winbar(winid, conversation)
-    if not winid or not vim.api.nvim_win_is_valid(winid) then return end
+    if not winid or not vim.api.nvim_win_is_valid(winid) then
+        return
+    end
 
     local parts = { " ai-chat" }
 
@@ -92,7 +94,9 @@ function M.update_winbar(winid, conversation)
         table.insert(parts, conversation.provider .. "/" .. conversation.model)
 
         -- Show thinking mode status
-        local ok, config = pcall(function() return require("ai-chat.config").get() end)
+        local ok, config = pcall(function()
+            return require("ai-chat.config").get()
+        end)
         if ok and config and config.chat and config.chat.thinking then
             local budget = (config.providers.anthropic or {}).thinking_budget or 10000
             table.insert(parts, string.format("thinking: %dK", math.floor(budget / 1000)))
@@ -121,18 +125,38 @@ function M._setup_keymaps(bufnr)
     end
 
     local function map(key, fn, desc)
-        if key then vim.keymap.set("n", key, fn, opts(desc)) end
+        if key then
+            vim.keymap.set("n", key, fn, opts(desc))
+        end
     end
 
-    map(keys.close, function() require("ai-chat").close() end, "Close panel")
-    map(keys.cancel, function() require("ai-chat").cancel() end, "Cancel generation")
-    map(keys.next_message, function() M._jump_message("next") end, "Next message")
-    map(keys.prev_message, function() M._jump_message("prev") end, "Previous message")
-    map(keys.next_code_block, function() M._jump_code_block("next") end, "Next code block")
-    map(keys.prev_code_block, function() M._jump_code_block("prev") end, "Previous code block")
-    map(keys.yank_code_block, function() M._yank_code_block() end, "Yank code block")
-    map(keys.apply_code_block, function() M._apply_code_block() end, "Apply code block")
-    map(keys.open_code_block, function() M._open_code_block() end, "Open code block in split")
+    map(keys.close, function()
+        require("ai-chat").close()
+    end, "Close panel")
+    map(keys.cancel, function()
+        require("ai-chat").cancel()
+    end, "Cancel generation")
+    map(keys.next_message, function()
+        M._jump_message("next")
+    end, "Next message")
+    map(keys.prev_message, function()
+        M._jump_message("prev")
+    end, "Previous message")
+    map(keys.next_code_block, function()
+        M._jump_code_block("next")
+    end, "Next code block")
+    map(keys.prev_code_block, function()
+        M._jump_code_block("prev")
+    end, "Previous code block")
+    map(keys.yank_code_block, function()
+        M._yank_code_block()
+    end, "Yank code block")
+    map(keys.apply_code_block, function()
+        M._apply_code_block()
+    end, "Apply code block")
+    map(keys.open_code_block, function()
+        M._open_code_block()
+    end, "Open code block in split")
     map(keys.show_help, function()
         require("ai-chat.commands.slash").commands.help(nil, {})
     end, "Show help")
@@ -146,8 +170,12 @@ end
 --- Jump to next/previous message header (## You / ## Assistant).
 ---@param direction "next"|"prev"
 function M._jump_message(direction)
-    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then return end
-    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
+    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then
+        return
+    end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then
+        return
+    end
 
     local lines = vim.api.nvim_buf_get_lines(state.bufnr, 0, -1, false)
     local cursor = vim.api.nvim_win_get_cursor(state.winid)
@@ -160,7 +188,9 @@ function M._jump_message(direction)
         end
     end
 
-    if #targets == 0 then return end
+    if #targets == 0 then
+        return
+    end
 
     if direction == "next" then
         for _, target in ipairs(targets) do
@@ -182,8 +212,12 @@ end
 --- Jump to next/previous code block.
 ---@param direction "next"|"prev"
 function M._jump_code_block(direction)
-    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then return end
-    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then return end
+    if not state.winid or not vim.api.nvim_win_is_valid(state.winid) then
+        return
+    end
+    if not state.bufnr or not vim.api.nvim_buf_is_valid(state.bufnr) then
+        return
+    end
 
     local lines = vim.api.nvim_buf_get_lines(state.bufnr, 0, -1, false)
     local cursor = vim.api.nvim_win_get_cursor(state.winid)
@@ -196,7 +230,9 @@ function M._jump_code_block(direction)
         end
     end
 
-    if #fences == 0 then return end
+    if #fences == 0 then
+        return
+    end
 
     if direction == "next" then
         for _, target in ipairs(fences) do
@@ -217,7 +253,9 @@ end
 
 --- Yank the code block under cursor to the clipboard.
 function M._yank_code_block()
-    if not state.bufnr or not state.winid then return end
+    if not state.bufnr or not state.winid then
+        return
+    end
     local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         vim.fn.setreg("+", block.content)
@@ -230,7 +268,9 @@ end
 
 --- Apply the code block under cursor via diff.
 function M._apply_code_block()
-    if not state.bufnr or not state.winid then return end
+    if not state.bufnr or not state.winid then
+        return
+    end
     local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         require("ai-chat.ui.diff").apply(block)
@@ -241,7 +281,9 @@ end
 
 --- Open the code block under cursor in a new split buffer.
 function M._open_code_block()
-    if not state.bufnr or not state.winid then return end
+    if not state.bufnr or not state.winid then
+        return
+    end
     local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         local new_buf = vim.api.nvim_create_buf(false, true)
@@ -268,7 +310,9 @@ end
 ---@param winid number
 function M._setup_treesitter(bufnr, winid)
     local ok = pcall(vim.treesitter.start, bufnr, "markdown")
-    if not ok then return end
+    if not ok then
+        return
+    end
     -- Enable concealment so bold/italic delimiters are hidden
     vim.wo[winid].conceallevel = 2
     vim.wo[winid].concealcursor = "n"

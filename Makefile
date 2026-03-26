@@ -3,8 +3,10 @@
 MINIMAL_INIT := tests/minimal_init.lua
 
 # Run all plenary.busted tests
+# NOTE: do NOT use --noplugin here — plenary registers PlenaryBustedDirectory
+# via its plugin/ directory, which --noplugin would skip.
 test:
-	nvim --headless --noplugin -u $(MINIMAL_INIT) \
+	nvim --headless -u $(MINIMAL_INIT) \
 		-c "PlenaryBustedDirectory tests/ {minimal_init = '$(MINIMAL_INIT)'}"
 
 # Run the v0.1 verification tests
@@ -13,7 +15,7 @@ verify:
 
 # Run a single test file (usage: make test-file FILE=tests/util/tokens_spec.lua)
 test-file:
-	nvim --headless --noplugin -u $(MINIMAL_INIT) \
+	nvim --headless -u $(MINIMAL_INIT) \
 		-c "PlenaryBustedFile $(FILE)"
 
 # Check formatting (CI uses this)
