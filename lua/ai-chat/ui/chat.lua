@@ -103,21 +103,33 @@ function M.update_winbar(winid, conversation)
 end
 
 --- Set up buffer-local keymaps for the chat buffer.
+--- Reads bindings from user config; set any key to `false` to disable.
 ---@param bufnr number
 function M._setup_keymaps(bufnr)
+    local keys = require("ai-chat.config").get().keys
+
     local opts = function(desc)
         return { buffer = bufnr, nowait = true, desc = "[ai-chat] " .. desc }
     end
 
-    vim.keymap.set("n", "q", function() require("ai-chat").close() end, opts("Close panel"))
-    vim.keymap.set("n", "<C-c>", function() require("ai-chat").cancel() end, opts("Cancel generation"))
-    vim.keymap.set("n", "]]", function() M._jump_message("next") end, opts("Next message"))
-    vim.keymap.set("n", "[[", function() M._jump_message("prev") end, opts("Previous message"))
-    vim.keymap.set("n", "]c", function() M._jump_code_block("next") end, opts("Next code block"))
-    vim.keymap.set("n", "[c", function() M._jump_code_block("prev") end, opts("Previous code block"))
-    vim.keymap.set("n", "gY", function() M._yank_code_block() end, opts("Yank code block"))
-    vim.keymap.set("n", "ga", function() M._apply_code_block() end, opts("Apply code block"))
-    vim.keymap.set("n", "gO", function() M._open_code_block() end, opts("Open code block in split"))
+    local function map(key, fn, desc)
+        if key then vim.keymap.set("n", key, fn, opts(desc)) end
+    end
+
+    map(keys.close, function() require("ai-chat").close() end, "Close panel")
+    map(keys.cancel, function() require("ai-chat").cancel() end, "Cancel generation")
+    map(keys.next_message, function() M._jump_message("next") end, "Next message")
+    map(keys.prev_message, function() M._jump_message("prev") end, "Previous message")
+    map(keys.next_code_block, function() M._jump_code_block("next") end, "Next code block")
+    map(keys.prev_code_block, function() M._jump_code_block("prev") end, "Previous code block")
+    map(keys.yank_code_block, function() M._yank_code_block() end, "Yank code block")
+    map(keys.apply_code_block, function() M._apply_code_block() end, "Apply code block")
+    map(keys.open_code_block, function() M._open_code_block() end, "Open code block in split")
+    map(keys.show_help, function()
+        require("ai-chat.commands.slash").commands.help(nil, {})
+    end, "Show help")
+
+    -- Always map `i` to focus input (not configurable — fundamental buffer behavior)
     vim.keymap.set("n", "i", function()
         require("ai-chat.ui.input").focus()
     end, opts("Focus input"))

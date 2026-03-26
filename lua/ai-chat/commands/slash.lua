@@ -51,7 +51,7 @@ M.commands.context = function(args, state)
     table.insert(lines, "Usage: type @context_name in your message")
     table.insert(lines, "Example: @buffer How do I fix this?")
 
-    vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+    M._render_system_message(table.concat(lines, "\n"))
 end
 
 --- /save [name] — Save the current conversation.
@@ -81,16 +81,26 @@ M.commands.help = function(args, state)
         "  /help             Show this help",
     }
 
-    -- Render help in the chat buffer if possible
+    M._render_system_message(table.concat(lines, "\n"))
+end
+
+--- Render a system-level message in the chat buffer.
+--- Falls back to vim.notify if the panel is not open.
+---@param text string
+function M._render_system_message(text)
     local ai_chat = require("ai-chat")
     if ai_chat.is_open() then
-        local config = ai_chat.get_config()
-        local conv = ai_chat.get_conversation()
-        -- Just notify for now; could render inline in v0.2
-        vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
-    else
-        vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+        local chat = require("ai-chat.ui.chat")
+        local bufnr = chat.get_bufnr()
+        if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+            require("ai-chat.ui.render").render_message(bufnr, {
+                role = "assistant",
+                content = text,
+            })
+            return
+        end
     end
+    vim.notify(text, vim.log.levels.INFO)
 end
 
 --- List all command names (for completion).

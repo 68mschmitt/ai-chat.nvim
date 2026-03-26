@@ -22,7 +22,7 @@ end
 ---@param entry table  Conversation data with an `id` field
 function M.write(entry)
     local filepath = storage_path .. "/" .. entry.id .. ".json"
-    local json = vim.fn.json_encode(entry)
+    local json = vim.json.encode(entry)
     vim.fn.writefile({ json }, filepath)
 
     -- Prune old conversations if over limit
@@ -41,7 +41,7 @@ function M.read(id)
     local lines = vim.fn.readfile(filepath)
     if #lines == 0 then return nil end
 
-    local ok, data = pcall(vim.fn.json_decode, table.concat(lines, "\n"))
+    local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
     if not ok then return nil end
 
     return data
@@ -57,7 +57,7 @@ function M.list()
     for _, filepath in ipairs(files) do
         local lines = vim.fn.readfile(filepath)
         if #lines > 0 then
-            local ok, data = pcall(vim.fn.json_decode, table.concat(lines, "\n"))
+            local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
             if ok and data then
                 table.insert(entries, {
                     id = data.id,

@@ -101,50 +101,59 @@ function M.clear()
 end
 
 --- Set up buffer-local keymaps for the input area.
+--- Reads bindings from user config; set any key to `false` to disable.
 ---@param bufnr number
 function M._setup_keymaps(bufnr)
+    local keys = require("ai-chat.config").get().keys
+
     local opts = function(desc)
         return { buffer = bufnr, nowait = true, desc = "[ai-chat] " .. desc }
     end
 
-    -- Normal mode: Enter sends
-    vim.keymap.set("n", "<CR>", function()
-        M._submit()
-    end, opts("Send message"))
+    -- Normal mode: submit
+    if keys.submit_normal then
+        vim.keymap.set("n", keys.submit_normal, function()
+            M._submit()
+        end, opts("Send message"))
+    end
 
-    -- Insert mode: Ctrl+Enter sends (terminal must support CSI u or similar)
-    vim.keymap.set("i", "<C-CR>", function()
-        vim.cmd("stopinsert")
-        M._submit()
-    end, opts("Send message"))
-
-    -- Also map Shift-Enter in insert mode as alternative send
-    vim.keymap.set("i", "<S-CR>", function()
-        vim.cmd("stopinsert")
-        M._submit()
-    end, opts("Send message"))
+    -- Insert mode: submit
+    if keys.submit_insert then
+        vim.keymap.set("i", keys.submit_insert, function()
+            vim.cmd("stopinsert")
+            M._submit()
+        end, opts("Send message"))
+    end
 
     -- Cancel
-    vim.keymap.set({ "n", "i" }, "<C-c>", function()
-        require("ai-chat").cancel()
-    end, opts("Cancel generation"))
+    if keys.cancel then
+        vim.keymap.set({ "n", "i" }, keys.cancel, function()
+            require("ai-chat").cancel()
+        end, opts("Cancel generation"))
+    end
 
     -- History recall
-    vim.keymap.set("n", "<Up>", function()
-        M._recall("prev")
-    end, opts("Previous message"))
+    if keys.recall_prev then
+        vim.keymap.set("n", keys.recall_prev, function()
+            M._recall("prev")
+        end, opts("Previous message"))
+    end
 
-    vim.keymap.set("n", "<Down>", function()
-        M._recall("next")
-    end, opts("Next message"))
+    if keys.recall_next then
+        vim.keymap.set("n", keys.recall_next, function()
+            M._recall("next")
+        end, opts("Next message"))
+    end
 
-    -- Close panel on q when input is empty
-    vim.keymap.set("n", "q", function()
-        local text = M.get_text()
-        if not text then
-            require("ai-chat").close()
-        end
-    end, opts("Close panel (when empty)"))
+    -- Close panel on q when input is empty (uses chat close key)
+    if keys.close then
+        vim.keymap.set("n", keys.close, function()
+            local text = M.get_text()
+            if not text then
+                require("ai-chat").close()
+            end
+        end, opts("Close panel (when empty)"))
+    end
 end
 
 --- Submit the current input.

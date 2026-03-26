@@ -1,11 +1,7 @@
 --- ai-chat.nvim — Configuration
 --- Schema definition, defaults, validation, and resolution.
---- The resolved config is stored module-locally after setup() calls resolve().
 
 local M = {}
-
----@type AiChatConfig?
-local _resolved = nil
 
 ---@class AiChatConfig
 M.defaults = {
@@ -112,14 +108,18 @@ M.defaults = {
 ---@param opts table  User-provided options
 ---@return AiChatConfig
 function M.resolve(opts)
-    _resolved = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
-    return _resolved
+    return vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
 end
 
---- Get the currently resolved config. Returns defaults if setup hasn't run.
+--- Get the currently resolved config.
+--- After setup(), delegates to init.lua's state. Before setup, returns defaults.
 ---@return AiChatConfig
 function M.get()
-    return _resolved or M.defaults
+    local ok, init = pcall(require, "ai-chat")
+    if ok and init._get_config then
+        return init._get_config()
+    end
+    return M.defaults
 end
 
 --- Validate a resolved config.

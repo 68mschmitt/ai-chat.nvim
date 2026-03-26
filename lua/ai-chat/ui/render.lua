@@ -158,12 +158,20 @@ function M.begin_response(bufnr)
 
                 vim.bo[bufnr].modifiable = false
 
-                -- Auto-scroll: find the chat window showing this buffer
-                for _, win in ipairs(vim.api.nvim_list_wins()) do
-                    if vim.api.nvim_win_get_buf(win) == bufnr then
-                        local last = vim.api.nvim_buf_line_count(bufnr)
-                        pcall(vim.api.nvim_win_set_cursor, win, { last, 0 })
-                        break
+                -- Auto-scroll only if enabled and user hasn't scrolled up
+                local chat_config = require("ai-chat.config").get().chat
+                if chat_config.auto_scroll then
+                    for _, win in ipairs(vim.api.nvim_list_wins()) do
+                        if vim.api.nvim_win_get_buf(win) == bufnr then
+                            local last = vim.api.nvim_buf_line_count(bufnr)
+                            local win_height = vim.api.nvim_win_get_height(win)
+                            local cursor_line = vim.api.nvim_win_get_cursor(win)[1]
+                            -- Only scroll if user is near the bottom
+                            if cursor_line >= last - win_height - 5 then
+                                pcall(vim.api.nvim_win_set_cursor, win, { last, 0 })
+                            end
+                            break
+                        end
                     end
                 end
             end)
@@ -292,27 +300,29 @@ function M.get_code_block_at_cursor(bufnr, winid)
 end
 
 --- Apply markup styling to a range of lines.
---- Highlights code block fences, conceals bold text delimiters, and
---- applies bold highlighting. Treesitter handles language-specific syntax
---- highlighting inside code blocks via markdown injection queries when available.
+--- Dims code block fences with AiChatMeta. When treesitter is not active,
+--- also conceals **bold** delimiters via extmarks as a fallback (treesitter's
+--- markdown_inline parser handles concealment when available).
 ---@param bufnr number
 ---@param from_line number  Start line (0-indexed)
 ---@param to_line number    End line (0-indexed, exclusive)
 function M._highlight_code_blocks(bufnr, from_line, to_line)
     local lines = vim.api.nvim_buf_get_lines(bufnr, from_line, to_line, false)
     local in_block = false
+    -- Only apply extmark-based bold concealment when treesitter is not handling it
+    local has_ts = pcall(vim.treesitter.get_parser, bufnr)
 
     for i, line in ipairs(lines) do
         local abs_line = from_line + i - 1
         if not in_block then
             if line:match("^```") then
                 in_block = true
-                -- Dim the fence line
+                -- Dim the fence line (complements treesitter, not redundant)
                 pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, abs_line, 0, {
                     line_hl_group = "AiChatMeta",
                 })
-            else
-                -- Conceal **bold** delimiters outside code blocks
+            elseif not has_ts then
+                -- Conceal **bold** delimiters when treesitter is unavailable
                 M._conceal_bold(bufnr, abs_line, line)
             end
         else

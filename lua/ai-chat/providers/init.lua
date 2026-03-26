@@ -24,12 +24,15 @@ function M.get(name)
     return provider
 end
 
---- Check if a provider exists.
+--- Check if a provider exists (without loading it).
 ---@param name string
 ---@return boolean
 function M.exists(name)
-    local ok = pcall(require, "ai-chat.providers." .. name)
-    return ok
+    if providers[name] then return true end
+    local mod_name = "ai-chat.providers." .. name
+    -- Check if the module file exists without loading and caching it
+    local found = package.searchpath(mod_name, package.path)
+    return found ~= nil
 end
 
 --- List all available provider names.

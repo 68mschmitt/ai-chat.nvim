@@ -45,6 +45,9 @@ function M.setup(opts)
     -- Set up highlight groups first (other modules may reference them)
     M._setup_highlights()
 
+    -- Seed random number generator once (used for conversation UUIDs)
+    math.randomseed(os.time() + (vim.uv or vim.loop).hrtime())
+
     -- Set up global keybindings
     M._setup_keymaps()
 
@@ -452,13 +455,7 @@ function M.show_keys()
         end
     end
 
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    vim.bo[buf].bufhidden = "wipe"
-    vim.cmd("botright " .. math.min(#lines + 2, 30) .. "split")
-    vim.api.nvim_win_set_buf(0, buf)
-    vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = buf })
+    require("ai-chat.util.ui").show_in_split(lines)
 end
 
 --- Show resolved configuration.
@@ -476,13 +473,7 @@ function M.show_config()
     table.insert(lines, 1, "ai-chat.nvim Resolved Configuration")
     table.insert(lines, 2, string.rep("-", 40))
 
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    vim.bo[buf].bufhidden = "wipe"
-    vim.cmd("botright split")
-    vim.api.nvim_win_set_buf(0, buf)
-    vim.keymap.set("n", "q", "<cmd>close<CR>", { buffer = buf })
+    require("ai-chat.util.ui").show_in_split(lines)
 end
 
 -- ─── Internal ────────────────────────────────────────────────────────
@@ -491,6 +482,12 @@ function M._ensure_init()
     if not initialized then
         error("[ai-chat] Plugin not initialized. Call require('ai-chat').setup() first.")
     end
+end
+
+--- Internal config accessor for config.lua to delegate to.
+--- Avoids a second copy of the resolved config.
+function M._get_config()
+    return state.config
 end
 
 function M._new_conversation()
@@ -622,7 +619,6 @@ function M._update_winbar()
 end
 
 function M._uuid()
-    math.randomseed(os.time() + os.clock() * 1000)
     local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
     return string.gsub(template, "[xy]", function(c)
         local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)

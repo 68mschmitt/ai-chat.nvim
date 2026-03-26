@@ -7,15 +7,9 @@ local M = {}
 ---@param args? string  Unused
 ---@return AiChatContext?
 function M.collect(args)
-    local bufnr = vim.api.nvim_get_current_buf()
-
-    -- Try alternate buffer if current is chat/input
-    if vim.bo[bufnr].buftype ~= "" then
-        bufnr = vim.fn.bufnr("#")
-        if bufnr < 0 or not vim.api.nvim_buf_is_valid(bufnr) then
-            return nil
-        end
-    end
+    -- Reuse buffer.lua's robust code-buffer finder
+    local bufnr = require("ai-chat.context.buffer")._find_code_buffer()
+    if not bufnr then return nil end
 
     local diagnostics = vim.diagnostic.get(bufnr)
     if #diagnostics == 0 then return nil end

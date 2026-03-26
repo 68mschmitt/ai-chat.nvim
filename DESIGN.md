@@ -31,8 +31,8 @@ build steps.
 - The plugin installs with a single line in lazy.nvim and works immediately
 - No platform-specific binaries, no `:AiChatBuild` step
 
-**One dependency:** `plenary.nvim` for curl (HTTP with streaming support).
-This is already installed in virtually every neovim config.
+**Zero dependencies.** HTTP is handled by `vim.system()` calling `curl` directly
+with streaming stdout callbacks. No plenary, no external Lua libraries.
 
 ### Vertical Split — Not Floating Windows
 

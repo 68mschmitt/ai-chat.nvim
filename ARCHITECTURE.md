@@ -39,7 +39,8 @@ ai-chat.nvim/
 │       └── util/
 │           ├── tokens.lua        # Approximate token counting
 │           ├── costs.lua         # Cost estimation per provider/model
-│           └── log.lua           # Audit logging
+│           ├── log.lua           # Audit logging
+│           └── ui.lua            # Shared UI helpers (scratch splits)
 ├── doc/
 │   └── ai-chat.txt              # Vim help file
 └── tests/
@@ -218,9 +219,14 @@ local function on_chunk(text)
             vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
         end
 
-        -- Auto-scroll only if user hasn't scrolled up
-        if user_at_bottom(win) then
-            vim.api.nvim_win_set_cursor(win, { write_line + 1, 0 })
+        -- Auto-scroll only if enabled and user hasn't scrolled up
+        if config.chat.auto_scroll then
+            local last = vim.api.nvim_buf_line_count(bufnr)
+            local win_height = vim.api.nvim_win_get_height(win)
+            local cursor_line = vim.api.nvim_win_get_cursor(win)[1]
+            if cursor_line >= last - win_height - 5 then
+                vim.api.nvim_win_set_cursor(win, { last, 0 })
+            end
         end
     end)
 end
@@ -229,7 +235,7 @@ end
 **Key rules:**
 - `vim.schedule()` wraps every buffer mutation. No exceptions.
 - Line-buffer accumulation prevents character-by-character jitter.
-- Auto-scroll respects user scroll position.
+- Auto-scroll respects `config.chat.auto_scroll` and user scroll position.
 - Buffer is set `nomodifiable` except during scheduled writes.
 - A `vim.loop.new_timer()` drives the spinner animation independently.
 
@@ -295,5 +301,5 @@ Retry policy for transient errors:
 - Unit tests for pure logic: `context/*.lua`, `util/*.lua`, `commands/slash.lua`
 - Integration tests for provider communication (mocked HTTP)
 - UI tests are manual — buffer management is hard to test in isolation
-- Test runner: `busted` with `minimal_init.lua` (loads only plenary + ai-chat)
+- Test runner: `nvim --headless` with `minimal_init.lua` (loads only ai-chat)
 - CI: GitHub Actions with neovim nightly + stable
