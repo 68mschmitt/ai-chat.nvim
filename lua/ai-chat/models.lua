@@ -77,7 +77,13 @@ end
 ---@param callback? fun(ok: boolean)
 function M.fetch(callback)
     vim.system({
-        "curl", "-s", "--connect-timeout", "5", "--max-time", "15", SOURCE_URL,
+        "curl",
+        "-s",
+        "--connect-timeout",
+        "5",
+        "--max-time",
+        "15",
+        SOURCE_URL,
     }, { text = true }, function(result)
         vim.schedule(function()
             if result.code ~= 0 or not result.stdout or result.stdout == "" then

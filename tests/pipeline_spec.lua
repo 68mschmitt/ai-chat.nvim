@@ -239,12 +239,9 @@ describe("pipeline integration", function()
                 return { kill = function() end }
             end
 
-            require("ai-chat.providers.ollama").preflight(
-                { host = "http://localhost:11434" },
-                function(ok, err)
-                    result_ok = ok
-                end
-            )
+            require("ai-chat.providers.ollama").preflight({ host = "http://localhost:11434" }, function(ok, err)
+                result_ok = ok
+            end)
 
             vim.wait(500, function()
                 return result_ok ~= nil
@@ -263,12 +260,9 @@ describe("pipeline integration", function()
                 return { kill = function() end }
             end
 
-            require("ai-chat.providers.ollama").preflight(
-                { host = "http://localhost:11434" },
-                function(ok, err)
-                    result_ok = ok
-                end
-            )
+            require("ai-chat.providers.ollama").preflight({ host = "http://localhost:11434" }, function(ok, err)
+                result_ok = ok
+            end)
 
             vim.wait(500, function()
                 return result_ok ~= nil

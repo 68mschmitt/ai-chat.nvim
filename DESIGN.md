@@ -262,6 +262,45 @@ These principles govern all development and contribution decisions:
 5. **Transparency is non-negotiable.** Any change that hides information from
    the user, auto-applies without consent, or introduces invisible behavior
    violates the core design philosophy and will be rejected.
+6. **Dependency Boundary Rule.** Modules are classified as either
+   **coordinator** or **boundary**. Coordinator modules (`init.lua`,
+   `stream.lua`) orchestrate the plugin and may call `config.get()` or
+   `require` other internal modules. Boundary modules (`providers/*`,
+   `models.lua`, `context/*`) are self-contained units that could work outside
+   this plugin — they receive everything they need as function arguments and
+   must not `require("ai-chat.config")`, `require("ai-chat.models")`, or any
+   other coordinator-owned module directly.
+
+   **This is a hard rule.** Boundary modules must not require
+   coordinator-owned modules directly. If you believe a specific case warrants
+   an exception, open a discussion before implementing — do not merge a
+   violation with a justification in the PR description.
+
+   **Rationale:** Clean dependency boundaries make modules testable in
+   isolation, prevent hidden coupling, and preserve the option to extract
+   modules into standalone plugins without rewiring their internals. The cost
+   of passing an argument is trivial; the cost of untangling a `require` web
+   is not.
+
+   **Correct:**
+   ```lua
+   -- providers/example.lua
+   function M.chat(messages, opts, callbacks)
+       local provider_config = opts.provider_config
+       local api_key = provider_config.api_key or vim.env.EXAMPLE_API_KEY
+       -- ...
+   end
+   ```
+
+   **Incorrect:**
+   ```lua
+   -- providers/example.lua
+   function M.chat(messages, opts, callbacks)
+       local cfg = require("ai-chat.config").get()   -- DO NOT do this
+       local provider_config = cfg.providers.example
+       -- ...
+   end
+   ```
 
 These principles should be documented in `CONTRIBUTING.md` when the project
 accepts external contributions (targeted for v1.0).

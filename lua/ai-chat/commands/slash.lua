@@ -81,10 +81,7 @@ M.commands.thinking = function(args, state)
         if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
             require("ai-chat.ui.thinking").set_visible(bufnr, visible)
         end
-        vim.notify(
-            "[ai-chat] Thinking blocks: " .. (visible and "visible" or "hidden"),
-            vim.log.levels.INFO
-        )
+        vim.notify("[ai-chat] Thinking blocks: " .. (visible and "visible" or "hidden"), vim.log.levels.INFO)
         return
     end
 
@@ -223,10 +220,7 @@ M.commands.debug = function(args, state)
         table.insert(lines, "")
         table.insert(lines, "Context collected:")
         for _, ctx in ipairs(last.context) do
-            table.insert(
-                lines,
-                string.format("  @%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0)
-            )
+            table.insert(lines, string.format("  @%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0))
         end
     end
 

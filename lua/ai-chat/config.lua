@@ -171,11 +171,7 @@ function M.load_project_config()
     if project.providers and type(project.providers) == "table" then
         for pname, pconfig in pairs(project.providers) do
             if type(pconfig) == "table" then
-                resolved.providers[pname] = vim.tbl_deep_extend(
-                    "force",
-                    resolved.providers[pname] or {},
-                    pconfig
-                )
+                resolved.providers[pname] = vim.tbl_deep_extend("force", resolved.providers[pname] or {}, pconfig)
             end
         end
     end

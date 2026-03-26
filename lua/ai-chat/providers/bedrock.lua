@@ -245,11 +245,17 @@ function M.chat(messages, opts, callbacks)
             -- Bedrock InvokeModelWithResponseStream wraps each Anthropic event
             -- in a frame: event{"bytes":"<base64-encoded JSON>"}
             -- Exceptions arrive as: exception{"message":"error text"}
-            M._process_stream_buffer(stream_buffer, callbacks, function(text)
-                accumulated_text = accumulated_text .. text
-            end, usage, function()
-                errored = true
-            end)
+            M._process_stream_buffer(
+                stream_buffer,
+                callbacks,
+                function(text)
+                    accumulated_text = accumulated_text .. text
+                end,
+                usage,
+                function()
+                    errored = true
+                end
+            )
 
             -- Trim processed content: keep only from the last unmatched position.
             -- Since %b{} is greedy and we process all matches, we can clear
@@ -299,7 +305,11 @@ function M.chat(messages, opts, callbacks)
                 if ok and err_data and (err_data.message or err_data.Message) then
                     local err_msg = err_data.message or err_data.Message
                     local err_code = "server"
-                    if err_msg:match("[Aa]ccess") or err_msg:match("[Uu]nauthorized") or err_msg:match("[Ff]orbidden") then
+                    if
+                        err_msg:match("[Aa]ccess")
+                        or err_msg:match("[Uu]nauthorized")
+                        or err_msg:match("[Ff]orbidden")
+                    then
                         err_code = "auth"
                     elseif err_msg:match("[Tt]hrottle") or err_msg:match("[Rr]ate") then
                         err_code = "rate_limit"
@@ -391,31 +401,24 @@ function M._handle_anthropic_event(event, callbacks, accumulate, usage, mark_err
                 callbacks.on_chunk(delta.text)
             end)
         end
-
     elseif event_type == "message_start" then
         -- Extract input token count from the initial message
         if event.message and event.message.usage then
             usage.input_tokens = event.message.usage.input_tokens or 0
         end
-
     elseif event_type == "message_delta" then
         -- Final usage info
         if event.usage then
             usage.output_tokens = event.usage.output_tokens or 0
         end
-
     elseif event_type == "message_stop" then
         -- Stream complete — handled by on_exit callback
-
     elseif event_type == "content_block_start" then
         -- No action needed
-
     elseif event_type == "content_block_stop" then
         -- No action needed
-
     elseif event_type == "ping" then
         -- Keep-alive, no action
-
     elseif event_type == "error" then
         local err_msg = "Bedrock API error"
         if event.error and event.error.message then

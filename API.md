@@ -88,6 +88,7 @@ Every provider must implement a single function: `chat()`.
 ---@field max_tokens? number             -- Max response tokens, default 4096
 ---@field thinking? boolean              -- Extended thinking mode (provider-specific)
 ---@field stream? boolean                -- Enable streaming, default true
+---@field provider_config table          -- Provider-specific config (injected by coordinator)
 
 ---@class AiChatCallbacks
 ---@field on_chunk fun(text: string)     -- Called for each streamed text fragment
@@ -116,6 +117,11 @@ Every provider must implement a single function: `chat()`.
 
 ### Provider Implementation Template
 
+Providers are **boundary modules** — they receive all dependencies as function
+arguments and must not `require("ai-chat.config")` or any other
+coordinator-owned module. See DESIGN.md § Contribution Principles #6
+(Dependency Boundary Rule).
+
 ```lua
 -- lua/ai-chat/providers/example.lua
 local M = {}
@@ -142,12 +148,15 @@ function M.list_models(config, callback)
 end
 
 --- Send a chat request with streaming.
+--- Config is passed in via opts.provider_config, not require'd directly.
 ---@param messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    local config = require("ai-chat.config").get().providers.example
+    -- Config is injected by the coordinator, not required directly
+    -- (Dependency Boundary Rule — see DESIGN.md)
+    local config = opts.provider_config or {}
     local api_key = config.api_key or vim.env.EXAMPLE_API_KEY
 
     -- Build request body

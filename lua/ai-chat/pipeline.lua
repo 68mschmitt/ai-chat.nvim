@@ -76,10 +76,7 @@ function M.send(text, opts, ui_state, deps)
     local provider_name = conv.get_provider()
     if not pstate.preflight_done[provider_name] then
         pstate.preflight_done[provider_name] = true
-        require("ai-chat.providers").preflight(
-            provider_name,
-            config.providers[provider_name]
-        )
+        require("ai-chat.providers").preflight(provider_name, config.providers[provider_name])
     end
 
     -- Collect and strip context
@@ -94,10 +91,7 @@ function M.send(text, opts, ui_state, deps)
     if #context > 0 then
         local parts = {}
         for _, ctx in ipairs(context) do
-            table.insert(
-                parts,
-                string.format("@%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0)
-            )
+            table.insert(parts, string.format("@%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0))
         end
         vim.notify("[ai-chat] " .. table.concat(parts, " | "), vim.log.levels.INFO)
     end

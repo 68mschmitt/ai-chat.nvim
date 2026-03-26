@@ -122,10 +122,24 @@ calls `ui` or `providers`. `stream` calls `providers` and `ui` (render,
 spinner) but receives conversation data as arguments and calls back to `init`
 via callbacks for history/costs/winbar updates.
 
+**Coordinator vs. Boundary modules:** Modules above the dependency boundary
+are **coordinators** — they may call `config.get()` and `require` other
+internal modules. Modules below the boundary are **boundary modules** — they
+receive all dependencies as function arguments and must not `require`
+coordinator-owned modules. See DESIGN.md § Contribution Principles #6
+(Dependency Boundary Rule) for the full rationale.
+
+| Type | Modules |
+|------|---------|
+| **Coordinator** | `init.lua`, `stream.lua`, `ui/init.lua`, `commands/init.lua` |
+| **Boundary** | `providers/*`, `models.lua`, `context/*` |
+
 **Config ownership:** `config.lua` owns the resolved configuration state.
 `init.lua` calls `config.resolve(user_opts)` during `setup()`, and
-`config.lua` stores the result. All other modules call `config.get()` to
-access the resolved config — no circular `pcall(require, "ai-chat")` dance.
+`config.lua` stores the result. Coordinator modules call `config.get()` to
+access the resolved config. Boundary modules (providers, models, context
+collectors) never call `config.get()` — they receive the config slice they
+need as a function argument from their coordinator caller.
 
 **Extracted modules:** `keymaps.lua` and `highlights.lua` are extracted from
 `init.lua` to keep the coordinator under ~400 lines. They are called by
