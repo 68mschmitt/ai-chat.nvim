@@ -90,6 +90,14 @@ function M.update_winbar(winid, conversation)
 
     if conversation then
         table.insert(parts, conversation.provider .. "/" .. conversation.model)
+
+        -- Show thinking mode status
+        local ok, config = pcall(function() return require("ai-chat.config").get() end)
+        if ok and config and config.chat and config.chat.thinking then
+            local budget = (config.providers.anthropic or {}).thinking_budget or 10000
+            table.insert(parts, string.format("thinking: %dK", math.floor(budget / 1000)))
+        end
+
         table.insert(parts, "msgs: " .. #conversation.messages)
     end
 
@@ -99,7 +107,7 @@ function M.update_winbar(winid, conversation)
         table.insert(parts, string.format("$%.2f", cost))
     end
 
-    vim.wo[winid].winbar = table.concat(parts, " │ ")
+    vim.wo[winid].winbar = table.concat(parts, " | ")
 end
 
 --- Set up buffer-local keymaps for the chat buffer.

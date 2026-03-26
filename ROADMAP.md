@@ -64,39 +64,46 @@ A user with Ollama installed can:
 
 **Structural (do first):**
 
-- [ ] Extract `conversation.lua` from `init.lua` (conversation state, message
+- [x] Extract `conversation.lua` from `init.lua` (conversation state, message
   building, system prompt, context window truncation)
-- [ ] Extract `stream.lua` from `init.lua` (stream orchestration, cancellation)
-- [ ] Test infrastructure: plenary.nvim runner, `minimal_init.lua`, Makefile,
-  first 5 test files (tokens, context parsing, config, slash commands, costs)
-- [ ] Buffer lifecycle autocommands (`WinClosed`, `BufWipeout` for chat/input)
-- [ ] `:checkhealth ai-chat` integration (neovim version, curl, provider
+- [x] Extract `stream.lua` from `init.lua` (stream orchestration, cancellation)
+- [x] Test infrastructure: plenary.nvim runner, `minimal_init.lua`, Makefile,
+  first 6 test files (tokens, context parsing, config, slash commands, costs,
+  conversation)
+- [x] Buffer lifecycle autocommands (`WinClosed`, `BufWipeout` for chat/input)
+- [x] `:checkhealth ai-chat` integration (neovim version, curl, provider
   reachability, treesitter markdown, history/log directory writable)
 
 **Features:**
 
-- [ ] Anthropic provider (direct API)
-- [ ] OpenAI-compatible provider
-- [ ] Context window management with oldest-first truncation
+- [x] Anthropic provider (direct API)
+- [x] OpenAI-compatible provider
+- [x] Context window management with oldest-first truncation
   - Per-provider default context window (Ollama 4K, Claude 200K, GPT-4o 128K)
   - Winbar shows `msgs: N (ctx: M)` when messages are truncated
   - One-time `vim.notify` when truncation first kicks in
-- [ ] First-run Ollama detection (async check on first send, once per session)
+- [x] First-run Ollama detection (async check on first send, once per session)
 - [x] ~~Diff-based code application (`ga` → opens diff split)~~ *done in v0.1*
 - [x] ~~Conversation persistence (save/load as JSON)~~ *done in v0.1*
 - [x] ~~`/save`, `/load`, `/new` commands~~ *done in v0.1*
 - [x] ~~`@diagnostics` context (LSP diagnostics)~~ *done in v0.1*
 - [x] ~~`@diff` context (git diff)~~ *done in v0.1*
-- [ ] Thinking mode toggle (`/thinking on|off`)
+- [x] Thinking mode toggle (`/thinking on|off`)
 - [x] ~~Cost tracking and display in winbar~~ *done in v0.1*
 - [ ] `:AiChatCosts` — daily/monthly cost aggregation (session-level done in v0.1)
 - [x] ~~Message navigation (`]]`, `[[`)~~ *done in v0.1*
 - [x] ~~Code block navigation (`]c`, `[c`)~~ *done in v0.1*
 - [x] ~~Quick actions: `<leader>ae` (explain), `<leader>af` (fix)~~ *done in v0.1*
-- [ ] Auto-retry on rate limits with exponential backoff
+- [x] Auto-retry on rate limits with exponential backoff
 - [x] ~~Audit log (`:AiChatLog`)~~ *done in v0.1*
 - [x] ~~Treesitter language injection for code blocks~~ *done in v0.1*
 - [x] ~~Bold/italic markdown concealment~~ *done in v0.1*
+
+**Also completed (not originally in v0.2 scope):**
+
+- [x] Graceful failure for stub providers (Bedrock errors via callback, not `error()`)
+- [x] `@diff` context timeout (5s bounded wait, was unbounded synchronous)
+- [x] Conversation module with context window truncation budgets per provider
 
 ### Success Criteria
 

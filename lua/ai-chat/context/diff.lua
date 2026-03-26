@@ -12,9 +12,12 @@ function M.collect(args)
         table.insert(cmd, "--staged")
     end
 
-    local result = vim.system(cmd, { text = true }):wait()
+    local result = vim.system(cmd, { text = true, timeout = 5000 }):wait()
 
     if result.code ~= 0 or not result.stdout or result.stdout == "" then
+        if result.signal and result.signal ~= 0 then
+            vim.notify("[ai-chat] @diff timed out (diff too large?)", vim.log.levels.WARN)
+        end
         return nil
     end
 

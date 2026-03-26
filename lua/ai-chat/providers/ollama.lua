@@ -121,7 +121,9 @@ function M.chat(messages, opts, callbacks)
                         if chunk.message and chunk.message.content then
                             local text = chunk.message.content
                             accumulated = accumulated .. text
-                            callbacks.on_chunk(text)
+                            vim.schedule(function()
+                                callbacks.on_chunk(text)
+                            end)
                         end
 
                         -- Final chunk contains usage stats

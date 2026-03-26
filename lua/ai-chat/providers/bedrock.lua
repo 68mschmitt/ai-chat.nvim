@@ -32,16 +32,21 @@ function M.list_models(config, callback)
 end
 
 --- Send a chat request with streaming.
+--- Not yet implemented — returns a graceful error via the callback interface.
 ---@param messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    -- TODO: Implement in v0.3
-    -- - Use `aws bedrock-runtime invoke-model-with-response-stream`
-    -- - Parse Bedrock event stream format
-    -- - Map Anthropic message format to Bedrock converse API
-    error("[ai-chat] Bedrock provider not yet implemented (planned for v0.3)")
+    vim.schedule(function()
+        callbacks.on_error({
+            code = "not_implemented",
+            message = "Bedrock provider not yet implemented (planned for v0.3). "
+                .. "Switch to another provider with /provider anthropic or /provider ollama.",
+            retryable = false,
+        })
+    end)
+    return function() end
 end
 
 return M

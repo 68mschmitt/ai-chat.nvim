@@ -13,7 +13,9 @@ end
 
 --- /new — Save current conversation and start a new one.
 M.commands.new = function(args, state)
-    if #state.conversation.messages > 0 then
+    local conv = state.conversation
+    local msg_count = conv.messages and #conv.messages or 0
+    if msg_count > 0 then
         require("ai-chat").save()
     end
     require("ai-chat").clear()
@@ -66,6 +68,23 @@ M.commands.load = function(args, state)
     require("ai-chat").history()
 end
 
+--- /thinking [on|off] — Toggle or set extended thinking mode.
+M.commands.thinking = function(args, state)
+    local value
+    if args == "on" then
+        value = true
+    elseif args == "off" then
+        value = false
+    else
+        -- Toggle: read current state from the coordinator
+        local chat = require("ai-chat")
+        local cfg = chat.get_config()
+        value = not cfg.chat.thinking
+    end
+
+    require("ai-chat").set_thinking(value)
+end
+
 --- /help — List available commands.
 M.commands.help = function(args, state)
     local lines = {
@@ -75,6 +94,7 @@ M.commands.help = function(args, state)
         "  /new              Save and start new conversation",
         "  /model [name]     Switch model",
         "  /provider [name]  Switch provider",
+        "  /thinking [on|off] Toggle extended thinking mode",
         "  /context          Show available context types",
         "  /save [name]      Save conversation",
         "  /load             Browse saved conversations",

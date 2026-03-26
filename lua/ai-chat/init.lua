@@ -2,19 +2,18 @@
 --- Public API and module coordinator.
 --- All user-facing functions live here. Internal modules are accessed
 --- through this coordinator, never directly by the user.
+---
+--- State ownership:
+---   config       → owned here
+---   conversation → owned by conversation.lua
+---   streaming    → owned by stream.lua
+---   ui refs      → owned here (chat_bufnr, chat_winid, etc.)
 
 local M = {}
 
 ---@class AiChatState
 local state = {
     config = {},
-    conversation = {
-        id = "",
-        messages = {},
-        provider = "",
-        model = "",
-        created_at = 0,
-    },
     ui = {
         chat_bufnr = nil,
         chat_winid = nil,
@@ -22,13 +21,24 @@ local state = {
         input_winid = nil,
         is_open = false,
     },
-    streaming = {
-        active = false,
-        cancel_fn = nil,
-    },
+    _ollama_checked = false,
 }
 
 local initialized = false
+
+-- Lazy module references (populated on first use)
+local conversation -- ai-chat.conversation
+local stream       -- ai-chat.stream
+
+local function get_conversation()
+    if not conversation then conversation = require("ai-chat.conversation") end
+    return conversation
+end
+
+local function get_stream()
+    if not stream then stream = require("ai-chat.stream") end
+    return stream
+end
 
 --- Initialize the plugin. Must be called once in the user's config.
 ---@param opts? table  User configuration (merged with defaults)
@@ -60,7 +70,7 @@ function M.setup(opts)
     require("ai-chat.util.log").init(state.config.log)
 
     -- Start a new conversation
-    M._new_conversation()
+    get_conversation().new(state.config.default_provider, state.config.default_model)
 
     initialized = true
 end
@@ -81,12 +91,16 @@ function M.open()
     if state.ui.is_open then return end
 
     local ui = require("ai-chat.ui")
-    local result = ui.open(state.config.ui, state.conversation)
+    local conv = get_conversation().get()
+    local result = ui.open(state.config.ui, conv)
     state.ui.chat_bufnr = result.chat_bufnr
     state.ui.chat_winid = result.chat_winid
     state.ui.input_bufnr = result.input_bufnr
     state.ui.input_winid = result.input_winid
     state.ui.is_open = true
+
+    -- Set up buffer lifecycle guards
+    M._setup_lifecycle_autocmds()
 
     pcall(vim.api.nvim_exec_autocmds, "User", {
         pattern = "AiChatPanelOpened",
@@ -99,9 +113,12 @@ function M.close()
     if not state.ui.is_open then return end
 
     -- Cancel any active generation
-    if state.streaming.active then
+    if get_stream().is_active() then
         M.cancel()
     end
+
+    -- Clean up lifecycle autocmds
+    pcall(vim.api.nvim_del_augroup_by_name, "ai-chat-lifecycle")
 
     require("ai-chat.ui").close()
     state.ui.is_open = false
@@ -140,7 +157,10 @@ function M.send(text, opts)
 
     -- Check for slash commands
     if text:match("^/") then
-        require("ai-chat.commands").handle(text, state)
+        require("ai-chat.commands").handle(text, {
+            config = state.config,
+            conversation = get_conversation().get(),
+        })
         -- Clear the input after handling slash command
         if state.ui.is_open then
             require("ai-chat.ui.input").clear()
@@ -149,9 +169,15 @@ function M.send(text, opts)
     end
 
     -- Don't send while already streaming
-    if state.streaming.active then
+    if get_stream().is_active() then
         vim.notify("[ai-chat] Already generating a response. Press <C-c> to cancel.", vim.log.levels.WARN)
         return
+    end
+
+    -- First-run Ollama detection
+    if not state._ollama_checked and get_conversation().get_provider() == "ollama" then
+        state._ollama_checked = true
+        M._check_ollama()
     end
 
     -- Collect context from @tags in the message
@@ -171,7 +197,8 @@ function M.send(text, opts)
     }
 
     -- Append to conversation
-    table.insert(state.conversation.messages, message)
+    local conv = get_conversation()
+    conv.append(message)
 
     -- Render user message in chat
     require("ai-chat.ui.render").render_message(state.ui.chat_bufnr, message)
@@ -179,49 +206,50 @@ function M.send(text, opts)
     -- Clear input
     require("ai-chat.ui.input").clear()
 
-    -- Build provider messages (system prompt + history + context)
-    local provider_messages = M._build_provider_messages()
+    -- Build provider messages (system prompt + history + context + truncation)
+    local provider_messages, truncated = conv.build_provider_messages(state.config)
+
+    -- Notify user if truncation happened (one-time per conversation)
+    if truncated and not state._truncation_notified then
+        state._truncation_notified = true
+        vim.notify(
+            string.format("[ai-chat] Context window: %d older messages truncated", truncated),
+            vim.log.levels.INFO
+        )
+    end
 
     -- Start streaming
-    local provider = require("ai-chat.providers").get(state.conversation.provider)
-    local spinner = require("ai-chat.ui.spinner")
-
-    state.streaming.active = true
-    spinner.start(state.ui.chat_winid)
+    local provider = require("ai-chat.providers").get(conv.get_provider())
 
     pcall(vim.api.nvim_exec_autocmds, "User", {
         pattern = "AiChatResponseStart",
-        data = { provider = state.conversation.provider, model = state.conversation.model },
+        data = { provider = conv.get_provider(), model = conv.get_model() },
     })
 
-    -- Create stream renderer
-    local stream_render = require("ai-chat.ui.render").begin_response(state.ui.chat_bufnr)
+    -- Final guard: ensure panel is still open before starting the stream
+    if not state.ui.is_open or not state.ui.chat_bufnr then return end
 
-    state.streaming.cancel_fn = provider.chat(
+    get_stream().send(
+        provider,
         provider_messages,
         {
-            model = state.conversation.model,
+            model = conv.get_model(),
+            provider_name = conv.get_provider(),
             temperature = state.config.chat.temperature,
             max_tokens = state.config.chat.max_tokens,
             thinking = state.config.chat.thinking,
         },
         {
-            on_chunk = function(chunk_text)
-                stream_render.append(chunk_text)
-            end,
+            chat_bufnr = state.ui.chat_bufnr,
+            chat_winid = state.ui.chat_winid,
+        },
+        {
             on_done = function(response)
-                state.streaming.active = false
-                state.streaming.cancel_fn = nil
-                spinner.stop()
-
-                -- Finalize rendering
-                stream_render.finish(response.usage)
-
                 -- Update winbar with new message count
                 M._update_winbar()
 
                 -- Store assistant message
-                table.insert(state.conversation.messages, {
+                conv.append({
                     role = "assistant",
                     content = response.content,
                     usage = response.usage,
@@ -233,15 +261,15 @@ function M.send(text, opts)
                 -- Record costs
                 if response.usage then
                     require("ai-chat.util.costs").record(
-                        state.conversation.provider,
-                        state.conversation.model,
+                        conv.get_provider(),
+                        conv.get_model(),
                         response.usage
                     )
                 end
 
                 -- Auto-save conversation
                 if state.config.history.enabled then
-                    require("ai-chat.history").save(state.conversation)
+                    require("ai-chat.history").save(conv.get())
                 end
 
                 pcall(vim.api.nvim_exec_autocmds, "User", {
@@ -254,13 +282,8 @@ function M.send(text, opts)
                     opts.callback(response)
                 end
             end,
+
             on_error = function(err)
-                state.streaming.active = false
-                state.streaming.cancel_fn = nil
-                spinner.stop()
-
-                stream_render.error(err)
-
                 require("ai-chat.util.log").error("Provider error", err)
 
                 pcall(vim.api.nvim_exec_autocmds, "User", {
@@ -274,27 +297,23 @@ end
 
 --- Cancel the active generation.
 function M.cancel()
-    if state.streaming.active and state.streaming.cancel_fn then
-        state.streaming.cancel_fn()
-        state.streaming.active = false
-        state.streaming.cancel_fn = nil
-        require("ai-chat.ui.spinner").stop()
-    end
+    get_stream().cancel()
 end
 
 --- Returns whether a response is currently being streamed.
 ---@return boolean
 function M.is_streaming()
-    return state.streaming.active
+    return get_stream().is_active()
 end
 
 --- Clear the current conversation and start fresh.
 function M.clear()
     M._ensure_init()
-    if state.streaming.active then
+    if get_stream().is_active() then
         M.cancel()
     end
-    M._new_conversation()
+    get_conversation().new(state.config.default_provider, state.config.default_model)
+    state._truncation_notified = nil
     if state.ui.is_open then
         require("ai-chat.ui.render").clear(state.ui.chat_bufnr)
         M._update_winbar()
@@ -305,7 +324,7 @@ end
 --- Get a read-only copy of the current conversation.
 ---@return AiChatConversation
 function M.get_conversation()
-    return vim.deepcopy(state.conversation)
+    return get_conversation().get()
 end
 
 --- Get the resolved configuration.
@@ -318,17 +337,18 @@ end
 ---@param model_name? string  If nil, opens a picker.
 function M.set_model(model_name)
     M._ensure_init()
+    local conv = get_conversation()
     if model_name then
-        state.conversation.model = model_name
+        conv.set_model(model_name)
         M._update_winbar()
         vim.notify("[ai-chat] Model: " .. model_name, vim.log.levels.INFO)
     else
-        local provider = require("ai-chat.providers").get(state.conversation.provider)
+        local provider = require("ai-chat.providers").get(conv.get_provider())
         provider.list_models(
-            state.config.providers[state.conversation.provider] or {},
+            state.config.providers[conv.get_provider()] or {},
             function(models)
                 if #models == 0 then
-                    vim.notify("[ai-chat] No models available from " .. state.conversation.provider, vim.log.levels.WARN)
+                    vim.notify("[ai-chat] No models available from " .. conv.get_provider(), vim.log.levels.WARN)
                     return
                 end
                 vim.ui.select(models, { prompt = "Select model:" }, function(choice)
@@ -345,22 +365,23 @@ end
 ---@param provider_name? string  If nil, opens a picker.
 function M.set_provider(provider_name)
     M._ensure_init()
+    local conv = get_conversation()
     if provider_name then
         local providers = require("ai-chat.providers")
         if not providers.exists(provider_name) then
             vim.notify("[ai-chat] Unknown provider: " .. provider_name, vim.log.levels.WARN)
             return
         end
-        state.conversation.provider = provider_name
+        conv.set_provider(provider_name)
         local provider_config = state.config.providers[provider_name]
         if provider_config and provider_config.model then
-            state.conversation.model = provider_config.model
+            conv.set_model(provider_config.model)
         end
         M._update_winbar()
         vim.notify("[ai-chat] Provider: " .. provider_name, vim.log.levels.INFO)
         pcall(vim.api.nvim_exec_autocmds, "User", {
             pattern = "AiChatProviderChanged",
-            data = { provider = provider_name, model = state.conversation.model },
+            data = { provider = provider_name, model = conv.get_model() },
         })
     else
         local available = require("ai-chat.providers").list()
@@ -372,12 +393,22 @@ function M.set_provider(provider_name)
     end
 end
 
+--- Set thinking mode on or off.
+---@param enabled boolean
+function M.set_thinking(enabled)
+    M._ensure_init()
+    state.config.chat.thinking = enabled
+    local status = enabled and "ON" or "OFF"
+    vim.notify("[ai-chat] Thinking mode: " .. status, vim.log.levels.INFO)
+    M._update_winbar()
+end
+
 --- Save the current conversation.
 ---@param name? string  Optional name for the conversation.
 function M.save(name)
     M._ensure_init()
     if state.config.history.enabled then
-        require("ai-chat.history").save(state.conversation, name)
+        require("ai-chat.history").save(get_conversation().get(), name)
         vim.notify("[ai-chat] Conversation saved", vim.log.levels.INFO)
     end
 end
@@ -389,9 +420,11 @@ function M.load(id)
     if id then
         local conv = require("ai-chat.history").load(id)
         if conv then
-            state.conversation = conv
+            get_conversation().restore(conv)
             if state.ui.is_open then
-                require("ai-chat.ui.render").render_conversation(state.ui.chat_bufnr, conv)
+                require("ai-chat.ui.render").render_conversation(
+                    state.ui.chat_bufnr, get_conversation().get()
+                )
                 M._update_winbar()
             end
         end
@@ -490,51 +523,91 @@ function M._get_config()
     return state.config
 end
 
-function M._new_conversation()
-    state.conversation = {
-        id = M._uuid(),
-        messages = {},
-        provider = state.config.default_provider,
-        model = state.config.default_model,
-        created_at = os.time(),
-    }
-end
+--- Set up buffer lifecycle autocommands to guard against inconsistent state.
+--- Registered in a single augroup cleared on each open() and deleted on close().
+function M._setup_lifecycle_autocmds()
+    local group = vim.api.nvim_create_augroup("ai-chat-lifecycle", { clear = true })
 
-function M._build_provider_messages()
-    local messages = {}
-
-    -- System prompt
-    local system_prompt = state.config.chat.system_prompt or M._default_system_prompt()
-    table.insert(messages, { role = "system", content = system_prompt })
-
-    -- Conversation history with inlined context
-    for _, msg in ipairs(state.conversation.messages) do
-        local content = msg.content
-        -- Inline context above the user's message
-        if msg.role == "user" and msg.context and #msg.context > 0 then
-            local context_parts = {}
-            for _, ctx in ipairs(msg.context) do
-                table.insert(context_parts, string.format(
-                    "<context type=\"%s\" source=\"%s\">\n%s\n</context>",
-                    ctx.type, ctx.source, ctx.content
-                ))
-            end
-            content = table.concat(context_parts, "\n\n") .. "\n\n" .. content
-        end
-        table.insert(messages, { role = msg.role, content = content })
+    -- Guard: chat window closed externally (`:q`, `<C-w>c`, `:only`)
+    if state.ui.chat_winid then
+        vim.api.nvim_create_autocmd("WinClosed", {
+            group = group,
+            pattern = tostring(state.ui.chat_winid),
+            callback = function()
+                vim.schedule(function()
+                    if not state.ui.is_open then return end
+                    -- Cancel stream, stop spinner
+                    if get_stream().is_active() then
+                        get_stream().cancel()
+                    end
+                    -- Destroy input (it lives inside the chat split)
+                    pcall(require("ai-chat.ui.input").destroy)
+                    -- Nil out state
+                    state.ui.is_open = false
+                    state.ui.chat_winid = nil
+                    state.ui.input_winid = nil
+                    state.ui.chat_bufnr = nil
+                    state.ui.input_bufnr = nil
+                    pcall(vim.api.nvim_del_augroup_by_name, "ai-chat-lifecycle")
+                    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatPanelClosed" })
+                end)
+            end,
+        })
     end
 
-    return messages
-end
+    -- Guard: chat buffer wiped (`:bwipeout`)
+    if state.ui.chat_bufnr then
+        vim.api.nvim_create_autocmd("BufWipeout", {
+            group = group,
+            buffer = state.ui.chat_bufnr,
+            callback = function()
+                vim.schedule(function()
+                    if not state.ui.is_open then return end
+                    if get_stream().is_active() then
+                        get_stream().cancel()
+                    end
+                    pcall(require("ai-chat.ui.input").destroy)
+                    -- Don't try to close the window — buffer is already gone
+                    state.ui.is_open = false
+                    state.ui.chat_winid = nil
+                    state.ui.input_winid = nil
+                    state.ui.chat_bufnr = nil
+                    state.ui.input_bufnr = nil
+                    pcall(vim.api.nvim_del_augroup_by_name, "ai-chat-lifecycle")
+                    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatPanelClosed" })
+                end)
+            end,
+        })
+    end
 
-function M._default_system_prompt()
-    return table.concat({
-        "You are a helpful coding assistant embedded in a neovim editor.",
-        "The user will ask questions about their code and you should provide",
-        "clear, concise answers. When suggesting code changes, use fenced code",
-        "blocks with the appropriate language identifier.",
-        "Be direct. Avoid unnecessary preamble.",
-    }, " ")
+    -- Guard: input buffer wiped externally
+    if state.ui.input_bufnr then
+        vim.api.nvim_create_autocmd("BufWipeout", {
+            group = group,
+            buffer = state.ui.input_bufnr,
+            callback = function()
+                vim.schedule(function()
+                    if not state.ui.is_open then return end
+                    -- If chat window is still valid, recreate the input
+                    if state.ui.chat_winid and vim.api.nvim_win_is_valid(state.ui.chat_winid) then
+                        local input = require("ai-chat.ui.input")
+                        local result = input.create(state.ui.chat_winid, state.config.ui.input_height)
+                        state.ui.input_bufnr = result.bufnr
+                        state.ui.input_winid = result.winid
+                    else
+                        -- Chat window also gone — full close
+                        state.ui.is_open = false
+                        state.ui.chat_winid = nil
+                        state.ui.input_winid = nil
+                        state.ui.chat_bufnr = nil
+                        state.ui.input_bufnr = nil
+                        pcall(vim.api.nvim_del_augroup_by_name, "ai-chat-lifecycle")
+                        pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatPanelClosed" })
+                    end
+                end)
+            end,
+        })
+    end
 end
 
 function M._setup_keymaps()
@@ -547,7 +620,6 @@ function M._setup_keymaps()
 
     if keys.send_selection then
         map("v", keys.send_selection, function()
-            -- Yank the visual selection, then send it
             vim.cmd('normal! "zy')
             local sel = vim.fn.getreg("z")
             if sel and sel ~= "" then
@@ -606,6 +678,8 @@ function M._setup_highlights()
     hl(0, "AiChatSeparator", { default = true, link = "WinSeparator" })
     hl(0, "AiChatInputPrompt", { default = true, link = "Question" })
     hl(0, "AiChatContextTag", { default = true, link = "Tag" })
+    hl(0, "AiChatThinking", { default = true, link = "Comment" })
+    hl(0, "AiChatThinkingHeader", { default = true, link = "DiagnosticInfo" })
 end
 
 function M._update_winbar()
@@ -613,17 +687,29 @@ function M._update_winbar()
         and vim.api.nvim_win_is_valid(state.ui.chat_winid) then
         require("ai-chat.ui.chat").update_winbar(
             state.ui.chat_winid,
-            state.conversation
+            get_conversation().get()
         )
     end
 end
 
-function M._uuid()
-    local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-    return string.gsub(template, "[xy]", function(c)
-        local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
-        return string.format("%x", v)
-    end)
+--- Async check if Ollama is running. Called once per session on first send.
+function M._check_ollama()
+    local host = (state.config.providers.ollama or {}).host or "http://localhost:11434"
+    vim.system(
+        { "curl", "-s", "--connect-timeout", "2", host .. "/api/tags" },
+        {},
+        function(result)
+            if result.code ~= 0 then
+                vim.schedule(function()
+                    vim.notify(
+                        "[ai-chat] Ollama not detected at " .. host
+                        .. ". Start it with `ollama serve` or switch provider with /provider.",
+                        vim.log.levels.WARN
+                    )
+                end)
+            end
+        end
+    )
 end
 
 return M
