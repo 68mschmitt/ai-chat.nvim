@@ -1,5 +1,12 @@
 # ai-chat.nvim — Roadmap
 
+> **Note for AI agents:** This file is the source of truth for project
+> progress. When you complete a roadmap item, **check it off immediately**
+> (`- [ ]` → `- [x]`). Do not leave implemented features unmarked — the
+> roadmap drifting out of sync with the codebase wastes future analysis time.
+> If you pull work forward from a later milestone, mark it done in both
+> places and add a note (e.g., *"done in v0.2"*).
+
 ## v0.1 — MVP (Target: 2 weeks)
 
 Ship the smallest useful thing. Get it in people's hands.
@@ -192,23 +199,23 @@ ships first — it reduces tech debt and unlocks faster iteration.
 
 **Providers:**
 
-- [ ] Amazon Bedrock provider
+- [x] Amazon Bedrock provider
 
 **Context improvements:**
 
-- [ ] Context collection feedback — when `@buffer` or `@selection` is resolved,
+- [x] Context collection feedback — when `@buffer` or `@selection` is resolved,
   show a brief `vim.notify` confirming what was collected:
   `"@buffer: main.lua (142 lines, ~2,847 tokens)"`. Closes the transparency
   gap between typing the tag and seeing the result.
 - [ ] Multi-file context selection
-- [ ] Project-local config (`.ai-chat.lua` in project root)
-- [ ] System prompt customization (global and per-project)
+- [x] Project-local config (`.ai-chat.lua` in project root)
+- [x] System prompt customization (global and per-project)
 
 **Commands:**
 
-- [ ] Slash commands: `/explain`, `/fix`, `/test`, `/review`
-- [ ] Slash command completion (ghost text as you type `/`)
-- [ ] `/thinking show|hide` — runtime toggle for thinking block visibility
+- [x] Slash commands: `/explain`, `/fix`, `/test`, `/review`
+- [x] Slash command completion (completion menu as you type `/`)
+- [x] `/thinking show|hide` — runtime toggle for thinking block visibility
   without restarting. Adds a winbar click target or command-based toggle.
 
 ### Success Criteria
