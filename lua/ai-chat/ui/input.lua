@@ -49,6 +49,9 @@ function M.create(parent_winid, height)
     -- Set up keymaps
     M._setup_keymaps(bufnr)
 
+    -- Set up winbar placeholder behavior
+    M._setup_winbar_autocmds(bufnr, winid)
+
     state.bufnr = bufnr
     state.winid = winid
 
@@ -57,6 +60,9 @@ end
 
 --- Destroy the input area.
 function M.destroy()
+    if state.bufnr then
+        pcall(vim.api.nvim_del_augroup_by_name, "ai-chat-input-" .. state.bufnr)
+    end
     if state.winid and vim.api.nvim_win_is_valid(state.winid) then
         vim.api.nvim_win_close(state.winid, true)
     end
@@ -168,6 +174,37 @@ function M._recall(direction)
 
     local text = state.history[state.history_index] or ""
     vim.api.nvim_buf_set_lines(state.bufnr, 0, -1, false, vim.split(text, "\n"))
+end
+
+--- Set up autocmds for winbar placeholder behavior.
+--- Clears the winbar when the input window is focused, and restores
+--- " > input" when leaving if the buffer is empty.
+---@param bufnr number
+---@param winid number
+function M._setup_winbar_autocmds(bufnr, winid)
+    local group = vim.api.nvim_create_augroup("ai-chat-input-" .. bufnr, { clear = true })
+
+    vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+        group = group,
+        buffer = bufnr,
+        callback = function()
+            if vim.api.nvim_win_is_valid(winid) then
+                vim.wo[winid].winbar = ""
+            end
+        end,
+    })
+
+    vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+        group = group,
+        buffer = bufnr,
+        callback = function()
+            if vim.api.nvim_win_is_valid(winid) then
+                if not M.get_text() then
+                    vim.wo[winid].winbar = " > input"
+                end
+            end
+        end,
+    })
 end
 
 return M
