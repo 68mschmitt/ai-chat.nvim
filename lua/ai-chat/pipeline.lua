@@ -123,6 +123,7 @@ function M.send(text, opts, ui_state, deps)
         opts = {
             model = conv.get_model(),
             provider_name = provider_name,
+            provider_config = config.providers[provider_name] or {},
             temperature = config.chat.temperature,
             max_tokens = config.chat.max_tokens,
             thinking = config.chat.thinking,
@@ -148,6 +149,7 @@ function M.send(text, opts, ui_state, deps)
     stream.send(provider, provider_messages, {
         model = conv.get_model(),
         provider_name = provider_name,
+        provider_config = config.providers[provider_name] or {},
         temperature = config.chat.temperature,
         max_tokens = config.chat.max_tokens,
         thinking = config.chat.thinking,
@@ -166,7 +168,9 @@ function M.send(text, opts, ui_state, deps)
                 timestamp = os.time(),
             })
             if response.usage then
-                require("ai-chat.util.costs").record(provider_name, conv.get_model(), response.usage)
+                local registry = require("ai-chat.models")
+                local reg_pricing = registry.get_pricing(provider_name, conv.get_model())
+                require("ai-chat.util.costs").record(provider_name, conv.get_model(), response.usage, reg_pricing)
             end
             if config.history.enabled then
                 require("ai-chat.history").save(conv.get())

@@ -86,8 +86,7 @@ end
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    local cfg = require("ai-chat.config").get()
-    local provider_config = cfg.providers.openai_compat or {}
+    local provider_config = opts.provider_config or {}
     local api_key = provider_config.api_key or vim.env.OPENAI_API_KEY
     local endpoint = provider_config.endpoint or "https://api.openai.com/v1/chat/completions"
 

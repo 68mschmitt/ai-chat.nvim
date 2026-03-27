@@ -117,7 +117,8 @@ describe("pipeline integration", function()
                 history = { enabled = false },
                 log = { enabled = false },
             })
-            local window = conversation._get_context_window("ollama", "custom-model")
+            local cfg = config.get()
+            local window = conversation._get_context_window("ollama", "custom-model", cfg)
             assert.equals(32768, window)
         end)
 
@@ -134,8 +135,9 @@ describe("pipeline integration", function()
                 history = { enabled = false },
                 log = { enabled = false },
             })
+            local cfg = config.get()
             -- Model-specific (128000) should win over provider config (8000)
-            local window = conversation._get_context_window("openai_compat", "gpt-4o")
+            local window = conversation._get_context_window("openai_compat", "gpt-4o", cfg)
             assert.equals(128000, window)
         end)
     end)

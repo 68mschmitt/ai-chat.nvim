@@ -48,8 +48,7 @@ end
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    local cfg = require("ai-chat.config").get()
-    local provider_config = cfg.providers.ollama or {}
+    local provider_config = opts.provider_config or {}
     local host = provider_config.host or "http://localhost:11434"
     local url = host .. "/api/chat"
 

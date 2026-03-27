@@ -20,18 +20,11 @@ end
 ---@param config table
 ---@param callback fun(models: string[])
 function M.list_models(config, callback)
-    local registry = require("ai-chat.models")
-    local ids = registry.get_model_ids("anthropic")
-    if #ids > 0 then
-        callback(ids)
-    else
-        -- Fallback if models.dev data not yet available
-        callback({
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514",
-            "claude-3-5-haiku-20241022",
-        })
-    end
+    callback({
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+        "claude-3-5-haiku-20241022",
+    })
 end
 
 --- Async preflight check. Verifies the API key is set.
@@ -58,8 +51,7 @@ end
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    local cfg = require("ai-chat.config").get()
-    local provider_config = cfg.providers.anthropic or {}
+    local provider_config = opts.provider_config or {}
     local api_key = provider_config.api_key or vim.env.ANTHROPIC_API_KEY
 
     if not api_key or api_key == "" then

@@ -154,7 +154,7 @@ function M.build_provider_messages(config)
     end
 
     -- Apply context window truncation (per-model, with provider fallback)
-    local max_tokens = M._get_context_window(state.provider, state.model)
+    local max_tokens = M._get_context_window(state.provider, state.model, config)
     local truncated = M._truncate_to_budget(messages, max_tokens)
 
     return messages, truncated
@@ -173,35 +173,24 @@ function M._default_system_prompt()
 end
 
 --- Get the context window size for a model, with provider-level fallback.
+--- All external data is received via arguments — no internal requires.
 ---@param provider string
 ---@param model string
+---@param config table  Resolved plugin config (passed by coordinator)
 ---@return number
-function M._get_context_window(provider, model)
-    -- 1. Check models.dev registry (most up-to-date source)
-    if model then
-        local reg_ok, registry = pcall(require, "ai-chat.models")
-        if reg_ok then
-            local ctx = registry.get_context_window(provider, model)
-            if ctx then
-                return ctx
-            end
-        end
-    end
-    -- 2. Check hardcoded per-model table
+function M._get_context_window(provider, model, config)
+    -- 1. Check hardcoded per-model table
     if model and model_context_windows[model] then
         return model_context_windows[model]
     end
-    -- 3. Check user config override (allows configuring custom models)
-    local ok, cfg = pcall(function()
-        return require("ai-chat.config").get()
-    end)
-    if ok and cfg and cfg.providers and cfg.providers[provider] then
-        local provider_cfg = cfg.providers[provider]
+    -- 2. Check user config override (allows configuring custom models)
+    if config and config.providers and config.providers[provider] then
+        local provider_cfg = config.providers[provider]
         if provider_cfg.context_window then
             return provider_cfg.context_window
         end
     end
-    -- 4. Fall back to provider default
+    -- 3. Fall back to provider default
     return provider_context_windows[provider] or 4096
 end
 

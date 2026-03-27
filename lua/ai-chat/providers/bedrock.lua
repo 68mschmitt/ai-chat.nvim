@@ -11,7 +11,7 @@
 
 local M = {}
 
-M.name = "bedrock"
+M.name = "Amazon Bedrock"
 
 ---@param config table
 ---@return boolean ok
@@ -30,18 +30,11 @@ end
 ---@param config table
 ---@param callback fun(models: string[])
 function M.list_models(config, callback)
-    local registry = require("ai-chat.models")
-    local ids = registry.get_model_ids("bedrock")
-    if #ids > 0 then
-        callback(ids)
-    else
-        -- Fallback if models.dev data not yet available
-        callback({
-            "anthropic.claude-sonnet-4-20250514-v1:0",
-            "anthropic.claude-opus-4-20250514-v1:0",
-            "anthropic.claude-3-5-haiku-20241022-v1:0",
-        })
-    end
+    callback({
+        "anthropic.claude-sonnet-4-20250514-v1:0",
+        "anthropic.claude-opus-4-20250514-v1:0",
+        "anthropic.claude-3-5-haiku-20241022-v1:0",
+    })
 end
 
 --- Async preflight check. Verifies the bearer token is available.
@@ -173,8 +166,7 @@ end
 ---@param callbacks AiChatCallbacks
 ---@return CancelFn
 function M.chat(messages, opts, callbacks)
-    local cfg = require("ai-chat.config").get()
-    local provider_config = cfg.providers.bedrock or {}
+    local provider_config = opts.provider_config or {}
     local token = provider_config.bearer_token or vim.env.AWS_BEARER_TOKEN_BEDROCK
     local region = provider_config.region or "us-east-1"
 

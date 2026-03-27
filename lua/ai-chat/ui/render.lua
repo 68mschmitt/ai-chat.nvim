@@ -227,7 +227,9 @@ function M.begin_response(bufnr)
                     local meta = string.format("%d->%d", usage.input_tokens, usage.output_tokens)
                     local provider = opts.provider or require("ai-chat.config").get().default_provider
                     local model = opts.model or require("ai-chat.config").get().default_model
-                    local cost = require("ai-chat.util.costs").estimate(provider, model, usage)
+                    local registry = require("ai-chat.models")
+                    local reg_pricing = registry.get_pricing(provider, model)
+                    local cost = require("ai-chat.util.costs").estimate(provider, model, usage, reg_pricing)
                     if cost > 0 then
                         meta = meta .. string.format(" | $%.4f", cost)
                     end

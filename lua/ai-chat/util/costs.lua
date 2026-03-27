@@ -31,21 +31,18 @@ local totals = {
 ---@param provider string
 ---@param model string
 ---@param usage AiChatUsage
+---@param ext_pricing? { input: number, output: number }  External pricing (e.g., from models.dev registry)
 ---@return number  Estimated cost in USD
-function M.estimate(provider, model, usage)
+function M.estimate(provider, model, usage, ext_pricing)
     if provider == "ollama" then
         return 0
     end
 
-    -- 1. Try models.dev registry (most current pricing)
-    local reg_ok, registry = pcall(require, "ai-chat.models")
-    if reg_ok then
-        local reg_pricing = registry.get_pricing(provider, model)
-        if reg_pricing then
-            local input_cost = (usage.input_tokens / 1000000) * reg_pricing.input
-            local output_cost = (usage.output_tokens / 1000000) * reg_pricing.output
-            return input_cost + output_cost
-        end
+    -- 1. Use externally-provided pricing (resolved by coordinator)
+    if ext_pricing then
+        local input_cost = (usage.input_tokens / 1000000) * ext_pricing.input
+        local output_cost = (usage.output_tokens / 1000000) * ext_pricing.output
+        return input_cost + output_cost
     end
 
     -- 2. Fall back to hardcoded pricing table
@@ -69,8 +66,9 @@ end
 ---@param provider string
 ---@param model string
 ---@param usage AiChatUsage
-function M.record(provider, model, usage)
-    local cost = M.estimate(provider, model, usage)
+---@param ext_pricing? { input: number, output: number }  External pricing (e.g., from models.dev registry)
+function M.record(provider, model, usage, ext_pricing)
+    local cost = M.estimate(provider, model, usage, ext_pricing)
     totals.session = totals.session + cost
     totals.session_requests = totals.session_requests + 1
 end
