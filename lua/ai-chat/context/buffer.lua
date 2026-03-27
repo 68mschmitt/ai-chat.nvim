@@ -36,23 +36,18 @@ end
 --- Find the most relevant code buffer (not chat/input buffers).
 ---@return number?
 function M._find_code_buffer()
-    -- Try alternate buffer first
-    local alt = vim.fn.bufnr("#")
-    if alt > 0 and vim.api.nvim_buf_is_valid(alt) and vim.bo[alt].buftype == "" then
-        return alt
+    -- Find the code buffer visible in another window
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        local buf = vim.api.nvim_win_get_buf(win)
+        if vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
+            return buf
+        end
     end
 
     -- Fall back to current buffer if it's a code buffer
     local cur = vim.api.nvim_get_current_buf()
     if vim.bo[cur].buftype == "" then
         return cur
-    end
-
-    -- Search for any loaded code buffer
-    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
-            return buf
-        end
     end
 
     return nil
