@@ -168,7 +168,7 @@ end
 function M.chat(messages, opts, callbacks)
     local provider_config = opts.provider_config or {}
     local token = provider_config.bearer_token or vim.env.AWS_BEARER_TOKEN_BEDROCK
-    local region = provider_config.region or "us-east-1"
+    local region = provider_config.region or vim.env.AWS_REGION or "us-east-1"
 
     if not token or token == "" then
         vim.schedule(function()

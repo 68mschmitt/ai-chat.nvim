@@ -5,15 +5,19 @@ local M = {}
 
 --- Apply a code block by opening a diff split.
 ---@param block { language: string?, content: string, start_line: number, end_line: number }
-function M.apply(block)
+---@param target_bufnr? number  If provided, skip target buffer detection (used by proposals)
+function M.apply(block, target_bufnr)
     -- Determine the target file
     -- Strategy:
-    -- 1. If the user had @buffer context, use that file
-    -- 2. If the code block has a file path hint, use that
-    -- 3. Use the alternate buffer (#)
-    -- 4. Prompt the user
+    -- 1. If target_bufnr is provided (e.g., from proposal review), use it
+    -- 2. If the user had @buffer context, use that file
+    -- 3. If the code block has a file path hint, use that
+    -- 4. Use the alternate buffer (#)
+    -- 5. Prompt the user
 
-    local target_bufnr = M._find_target_buffer(block)
+    if not target_bufnr then
+        target_bufnr = M._find_target_buffer(block)
+    end
 
     if not target_bufnr then
         vim.notify("[ai-chat] Could not determine target file for code application", vim.log.levels.WARN)

@@ -78,6 +78,10 @@ M.defaults = {
         focus_input = "<leader>ac",
         switch_model = "<leader>am",
         switch_provider = "<leader>ap",
+        -- Proposals (global)
+        proposal_list = "<leader>ar",
+        proposal_next = "<leader>an",
+        proposal_accept_all = "<leader>aR",
         -- Chat buffer (buffer-local)
         close = "q",
         cancel = "<C-c>",

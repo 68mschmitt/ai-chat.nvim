@@ -35,6 +35,10 @@ function M.create(parent_winid, height)
     vim.bo[bufnr].swapfile = false
     vim.bo[bufnr].filetype = "aichat.input"
 
+    -- Completion: show popup menu but don't pre-select any item.
+    -- This prevents "/" from auto-inserting "/clear" (the first match).
+    vim.api.nvim_set_option_value("completeopt", "menu,menuone,noselect", { buf = bufnr })
+
     -- Window options
     vim.wo[winid].number = false
     vim.wo[winid].relativenumber = false
@@ -236,6 +240,7 @@ local slash_items = {
     { word = "/fix", menu = "Fix problems" },
     { word = "/test", menu = "Generate tests" },
     { word = "/review", menu = "Code review" },
+    { word = "/propose", menu = "Propose code changes" },
     { word = "/context", menu = "Show context types" },
     { word = "/save", menu = "Save conversation" },
     { word = "/load", menu = "Load conversation" },

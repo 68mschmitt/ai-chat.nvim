@@ -238,38 +238,38 @@ full design rationale.
 
 ### Scope
 
-- [ ] Proposal data model (`proposals/init.lua`)
+- [x] Proposal data model (`proposals/init.lua`)
   - Proposal struct: id, file, description, original/proposed lines, range,
     status (pending/accepted/rejected/expired), conversation reference
   - Ephemeral state — proposals live for the session, not persisted to disk
-- [ ] Sign + virtual text placement for pending proposals
+- [x] Sign + virtual text placement for pending proposals
   - `AiChatProposalSign` sign in gutter on first line of affected range
   - Right-aligned virtual text: `"ai-chat: N pending change(s)"` in `AiChatMeta`
   - No buffer modification — undo tree is untouched
-- [ ] Quickfix list integration for multi-file proposal navigation
+- [x] Quickfix list integration for multi-file proposal navigation
   - Populate via `vim.fn.setqflist()` with AI intent descriptions
   - Standard `:cnext`/`:cprev`/`]q`/`[q` navigation
-- [ ] Buffer attachment for conflict detection
+- [x] Buffer attachment for conflict detection
   - Track proposal target range via `nvim_buf_attach` `on_lines` callback
   - Auto-expire proposals when user edits overlap the target range
   - Dimmed sign variant + `"ai-chat: proposal outdated"` for expired proposals
-- [ ] Proposal review via existing diff split (`ui/diff.lua`)
+- [x] Proposal review via existing diff split (`ui/diff.lua`)
   - `gp` on a proposal sign opens the same diff view used for chat code blocks
   - Source is the proposal queue instead of `render.get_code_block_at_cursor()`
-- [ ] Proposal keymaps
+- [x] Proposal keymaps
   - `<leader>ar` — open proposal quickfix list
   - `<leader>an` — jump to next pending proposal (across files)
   - `gp` — preview/diff proposal at cursor (in code buffers with pending sign)
   - `ga` — accept proposal at cursor (in code buffers with pending sign)
   - `gx` — reject/dismiss proposal at cursor
   - `<leader>aR` — accept all pending proposals (with `vim.fn.confirm` prompt)
-- [ ] Autocommand for deferred sign placement (files not yet open)
+- [x] Autocommand for deferred sign placement (files not yet open)
   - Register `BufRead` autocmd for proposal target paths
   - Place signs when the file is eventually opened
-- [ ] User events: `AiChatProposalCreated`, `AiChatProposalAccepted`,
+- [x] User events: `AiChatProposalCreated`, `AiChatProposalAccepted`,
   `AiChatProposalRejected`, `AiChatProposalExpired`
-- [ ] Highlight groups: `AiChatProposalSign`, `AiChatProposalExpired`
-- [ ] Single `vim.notify` on proposal arrival — no modal dialogs, no focus stealing
+- [x] Highlight groups: `AiChatProposalSign`, `AiChatProposalExpired`
+- [x] Single `vim.notify` on proposal arrival — no modal dialogs, no focus stealing
 
 ### Success Criteria
 

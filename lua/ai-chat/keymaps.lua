@@ -68,6 +68,24 @@ function M.setup(keys)
             require("ai-chat").set_provider()
         end, { desc = "[ai-chat] Switch provider" })
     end
+
+    if keys.proposal_list then
+        map("n", keys.proposal_list, function()
+            require("ai-chat").open_proposal_quickfix()
+        end, { desc = "[ai-chat] Open proposal quickfix list" })
+    end
+
+    if keys.proposal_next then
+        map("n", keys.proposal_next, function()
+            require("ai-chat").next_proposal()
+        end, { desc = "[ai-chat] Jump to next pending proposal" })
+    end
+
+    if keys.proposal_accept_all then
+        map("n", keys.proposal_accept_all, function()
+            require("ai-chat").accept_all_proposals()
+        end, { desc = "[ai-chat] Accept all pending proposals" })
+    end
 end
 
 return M

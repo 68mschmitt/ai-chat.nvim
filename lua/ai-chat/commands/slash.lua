@@ -249,6 +249,46 @@ M.commands.debug = function(args, state)
     require("ai-chat.util.ui").show_in_split(lines)
 end
 
+--- /propose — Ask the AI to propose code changes.
+--- Sends with a system prompt supplement instructing structured output.
+--- The response callback triggers proposal extraction via init.lua.
+M.commands.propose = function(args, state)
+    local propose_system = "IMPORTANT: You are being asked to propose specific code changes. "
+        .. "For each change, output a fenced code block with the target file path annotation. "
+        .. "Use this format on the opening fence line:\n\n"
+        .. "```language file=path/to/file.lua lines=N-M\n"
+        .. "-- replacement code here\n"
+        .. "```\n\n"
+        .. "Where:\n"
+        .. "- `file=` is the relative path from the project root\n"
+        .. "- `lines=N-M` is the line range being replaced (optional but preferred)\n"
+        .. "- The code block content is the proposed replacement\n\n"
+        .. "Before each code block, write a brief explanation (1-3 sentences) of what the change does and why it's needed. "
+        .. "Code blocks without file= annotations will be treated as illustrative examples, not proposals."
+
+    local template = propose_system .. "\n\nPropose specific code changes for the following request:"
+    local default_context = "@buffer"
+
+    local text = template
+    if args and args ~= "" then
+        if not args:match("^@") then
+            text = default_context .. " " .. text .. "\n\n" .. args
+        else
+            text = text .. "\n\n" .. args
+        end
+    else
+        text = default_context .. " " .. text
+    end
+
+    require("ai-chat").send(text, {
+        callback = function(response)
+            if response and response.content then
+                require("ai-chat").handle_proposals(response.content)
+            end
+        end,
+    })
+end
+
 --- /help — List available commands.
 M.commands.help = function(args, state)
     local lines = {
@@ -263,6 +303,7 @@ M.commands.help = function(args, state)
         "  /fix [text]       Fix problems in attached code (@buffer @diagnostics)",
         "  /test [text]      Generate tests for attached code (@buffer default)",
         "  /review [text]    Code review (@diff default)",
+        "  /propose [text]   Propose code changes (@buffer default)",
         "  /context          Show available context types",
         "  /save [name]      Save conversation",
         "  /load             Browse saved conversations",
