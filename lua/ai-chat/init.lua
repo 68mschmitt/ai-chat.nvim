@@ -81,7 +81,20 @@ function M.setup(opts)
     -- Initialize model registry (loads from disk cache, kicks off async refresh)
     require("ai-chat.models").init()
     M._setup_code_buffer_tracking()
-    get_conversation().new(resolved.default_provider, resolved.default_model)
+
+    -- Restore last used provider/model if available, otherwise use config defaults
+    local user_state = require("ai-chat.state")
+    user_state.load()
+    local init_provider = user_state.get_last_provider() or resolved.default_provider
+    local init_model = user_state.get_last_model() or resolved.default_model
+
+    -- Validate the persisted provider is still valid
+    if not require("ai-chat.providers").exists(init_provider) then
+        init_provider = resolved.default_provider
+        init_model = resolved.default_model
+    end
+
+    get_conversation().new(init_provider, init_model)
 
     initialized = true
 end
@@ -193,7 +206,11 @@ function M.clear()
     if get_stream().is_active() then
         M.cancel()
     end
-    get_conversation().new(config.default_provider, config.default_model)
+    -- Preserve the user's last provider/model choice across clears
+    local user_state = require("ai-chat.state")
+    local provider = user_state.get_last_provider() or config.default_provider
+    local model = user_state.get_last_model() or config.default_model
+    get_conversation().new(provider, model)
     get_pipeline().reset()
     if state.ui.is_open then
         require("ai-chat.ui.render").clear(state.ui.chat_bufnr)
@@ -232,6 +249,7 @@ function M.set_model(model_name)
     local conv = get_conversation()
     if model_name then
         conv.set_model(model_name)
+        require("ai-chat.state").set_last_model(conv.get_provider(), model_name)
         M._update_winbar()
         vim.notify("[ai-chat] Model: " .. model_name, vim.log.levels.INFO)
     else
@@ -286,6 +304,7 @@ function M.set_provider(provider_name)
         if provider_config and provider_config.model then
             conv.set_model(provider_config.model)
         end
+        require("ai-chat.state").set_last_model(provider_name, conv.get_model())
         M._update_winbar()
         vim.notify("[ai-chat] Provider: " .. provider_name, vim.log.levels.INFO)
         pcall(vim.api.nvim_exec_autocmds, "User", {
