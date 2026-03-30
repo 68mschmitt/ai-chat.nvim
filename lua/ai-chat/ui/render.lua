@@ -46,11 +46,6 @@ function M.render_message(bufnr, message)
 
     -- Add metadata as virtual text on the header line
     local meta_parts = {}
-    if message.context and #message.context > 0 then
-        for _, ctx in ipairs(message.context) do
-            table.insert(meta_parts, "@" .. ctx.type .. ": " .. ctx.source)
-        end
-    end
     if message.usage then
         table.insert(
             meta_parts,

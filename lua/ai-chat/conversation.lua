@@ -136,21 +136,9 @@ function M.build_provider_messages(config)
     local system_prompt = config.chat.system_prompt or M._default_system_prompt()
     table.insert(messages, { role = "system", content = system_prompt })
 
-    -- Conversation history with inlined context
+    -- Conversation history
     for _, msg in ipairs(state.messages) do
-        local content = msg.content
-        -- Inline context above the user's message
-        if msg.role == "user" and msg.context and #msg.context > 0 then
-            local context_parts = {}
-            for _, ctx in ipairs(msg.context) do
-                table.insert(
-                    context_parts,
-                    string.format('<context type="%s" source="%s">\n%s\n</context>', ctx.type, ctx.source, ctx.content)
-                )
-            end
-            content = table.concat(context_parts, "\n\n") .. "\n\n" .. content
-        end
-        table.insert(messages, { role = msg.role, content = content })
+        table.insert(messages, { role = msg.role, content = msg.content })
     end
 
     -- Apply context window truncation (per-model, with provider fallback)

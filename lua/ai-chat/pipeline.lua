@@ -1,7 +1,6 @@
 --- ai-chat.nvim — Send pipeline
---- Orchestrates the full lifecycle of sending a message: slash command
---- routing, preflight checks, context collection, message building,
---- truncation notification, and provider streaming.
+--- Orchestrates the full lifecycle of sending a message: preflight checks,
+--- message building, truncation notification, and provider streaming.
 ---
 --- Extracted from init.lua to keep the coordinator focused on public API
 --- and module wiring. This module owns the send logic; init.lua delegates.
@@ -23,7 +22,6 @@ local pstate = {
 ---@field provider string?
 ---@field model string?
 ---@field timestamp number?
----@field context AiChatContext[]?
 ---@field truncated number?
 local last_request = {}
 
@@ -42,7 +40,6 @@ end
 --- Execute the full send pipeline.
 ---
 ---@param text string              User message text
----@param opts table               { context?: string[], callback?: fun(response) }
 ---@param ui_state table           { chat_bufnr, chat_winid, input_bufnr, input_winid, is_open }
 ---@param deps table               Injected dependencies:
 ---   conversation: the conversation module
@@ -50,7 +47,7 @@ end
 ---   config: resolved config table
 ---   open_fn: function to open the panel if needed
 ---   update_winbar_fn: function to update the winbar
-function M.send(text, opts, ui_state, deps)
+function M.send(text, ui_state, deps)
     local config = deps.config
     local conv = deps.conversation
     local stream = deps.stream
@@ -60,18 +57,6 @@ function M.send(text, opts, ui_state, deps)
         deps.open_fn()
     end
 
-    -- Slash commands — route and exit
-    if text:match("^/") then
-        require("ai-chat.commands").handle(text, {
-            config = config,
-            conversation = conv.get(),
-        })
-        if ui_state.is_open then
-            require("ai-chat.ui.input").clear()
-        end
-        return
-    end
-
     -- Provider preflight check (once per session per provider)
     local provider_name = conv.get_provider()
     if not pstate.preflight_done[provider_name] then
@@ -79,28 +64,10 @@ function M.send(text, opts, ui_state, deps)
         require("ai-chat.providers").preflight(provider_name, config.providers[provider_name])
     end
 
-    -- Collect and strip context
-    local context_mod = require("ai-chat.context")
-    local context = context_mod.collect(text, opts.context)
-    local clean_text = context_mod.strip_tags(text)
-    if clean_text == "" then
-        clean_text = text
-    end
-
-    -- Context collection feedback — single combined vim.notify
-    if #context > 0 then
-        local parts = {}
-        for _, ctx in ipairs(context) do
-            table.insert(parts, string.format("@%s: %s (~%d tokens)", ctx.type, ctx.source, ctx.token_estimate or 0))
-        end
-        vim.notify("[ai-chat] " .. table.concat(parts, " | "), vim.log.levels.INFO)
-    end
-
     -- Build and append user message
     local message = {
         role = "user",
-        content = clean_text,
-        context = context,
+        content = text,
         timestamp = os.time(),
     }
     conv.append(message)
@@ -117,7 +84,7 @@ function M.send(text, opts, ui_state, deps)
         )
     end
 
-    -- Record debug info for /debug command
+    -- Record debug info for introspection
     last_request = {
         provider_messages = provider_messages,
         opts = {
@@ -131,7 +98,6 @@ function M.send(text, opts, ui_state, deps)
         provider = provider_name,
         model = conv.get_model(),
         timestamp = os.time(),
-        context = context,
         truncated = truncated,
     }
 
@@ -179,9 +145,6 @@ function M.send(text, opts, ui_state, deps)
                 pattern = "AiChatResponseDone",
                 data = { response = response, usage = response.usage },
             })
-            if opts.callback then
-                opts.callback(response)
-            end
         end,
         on_error = function(err)
             require("ai-chat.util.log").error("Provider error", err)

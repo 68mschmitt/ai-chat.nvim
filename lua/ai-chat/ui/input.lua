@@ -35,10 +35,6 @@ function M.create(parent_winid, height)
     vim.bo[bufnr].swapfile = false
     vim.bo[bufnr].filetype = "aichat.input"
 
-    -- Completion: show popup menu but don't pre-select any item.
-    -- This prevents "/" from auto-inserting "/clear" (the first match).
-    vim.api.nvim_set_option_value("completeopt", "menu,menuone,noselect", { buf = bufnr })
-
     -- Window options
     vim.wo[winid].number = false
     vim.wo[winid].relativenumber = false
@@ -52,9 +48,6 @@ function M.create(parent_winid, height)
 
     -- Set up keymaps
     M._setup_keymaps(bufnr)
-
-    -- Set up slash command completion
-    M._setup_slash_completion(bufnr)
 
     -- Set up winbar placeholder behavior
     M._setup_winbar_autocmds(bufnr, winid)
@@ -224,72 +217,6 @@ function M._setup_winbar_autocmds(bufnr, winid)
                 if not M.get_text() then
                     vim.wo[winid].winbar = " > input"
                 end
-            end
-        end,
-    })
-end
-
---- Slash command completion items with descriptions.
-local slash_items = {
-    { word = "/clear", menu = "Clear conversation" },
-    { word = "/new", menu = "Save and start new" },
-    { word = "/model", menu = "Switch model" },
-    { word = "/provider", menu = "Switch provider" },
-    { word = "/thinking", menu = "Toggle thinking mode" },
-    { word = "/explain", menu = "Explain code" },
-    { word = "/fix", menu = "Fix problems" },
-    { word = "/test", menu = "Generate tests" },
-    { word = "/review", menu = "Code review" },
-    { word = "/propose", menu = "Propose code changes" },
-    { word = "/context", menu = "Show context types" },
-    { word = "/save", menu = "Save conversation" },
-    { word = "/load", menu = "Load conversation" },
-    { word = "/debug", menu = "Show last request" },
-    { word = "/help", menu = "List commands" },
-}
-
---- Set up slash command completion via TextChangedI autocmd.
---- When the line starts with "/", triggers vim.fn.complete() with matching commands.
----@param bufnr number
-function M._setup_slash_completion(bufnr)
-    local group = vim.api.nvim_create_augroup("ai-chat-slash-complete-" .. bufnr, { clear = true })
-
-    vim.api.nvim_create_autocmd("TextChangedI", {
-        group = group,
-        buffer = bufnr,
-        callback = function()
-            -- Only complete on the first line
-            local cursor = vim.api.nvim_win_get_cursor(0)
-            if cursor[1] ~= 1 then
-                return
-            end
-
-            local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] or ""
-            if not line:match("^/") then
-                return
-            end
-
-            -- Don't re-trigger if pum is already visible
-            if vim.fn.pumvisible() == 1 then
-                return
-            end
-
-            -- Filter items by prefix
-            local prefix = line:match("^(/%S*)")
-            if not prefix then
-                return
-            end
-
-            local matches = {}
-            for _, item in ipairs(slash_items) do
-                if item.word:sub(1, #prefix) == prefix then
-                    table.insert(matches, item)
-                end
-            end
-
-            if #matches > 0 then
-                -- col is 1-indexed byte position of the start of the word being completed
-                vim.fn.complete(1, matches)
             end
         end,
     })

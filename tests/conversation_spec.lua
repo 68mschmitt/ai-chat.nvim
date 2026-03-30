@@ -93,23 +93,6 @@ describe("conversation.build_provider_messages", function()
         assert.is_nil(truncated, "should not truncate short conversations")
     end)
 
-    it("inlines context into user messages", function()
-        conversation.new("ollama", "llama3.2")
-        conversation.append({
-            role = "user",
-            content = "explain this",
-            context = {
-                { type = "buffer", source = "test.lua", content = "local x = 1" },
-            },
-        })
-
-        local config = require("ai-chat.config").resolve({})
-        local messages = conversation.build_provider_messages(config)
-
-        -- The user message should have context inlined
-        assert.truthy(messages[2].content:match("context"))
-        assert.truthy(messages[2].content:match("local x = 1"))
-    end)
 end)
 
 describe("conversation._truncate_to_budget", function()

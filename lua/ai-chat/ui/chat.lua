@@ -151,14 +151,11 @@ function M._setup_keymaps(bufnr)
     map(keys.yank_code_block, function()
         M._yank_code_block()
     end, "Yank code block")
-    map(keys.apply_code_block, function()
-        M._apply_code_block()
-    end, "Apply code block")
     map(keys.open_code_block, function()
         M._open_code_block()
     end, "Open code block in split")
     map(keys.show_help, function()
-        require("ai-chat.commands.slash").commands.help(nil, {})
+        require("ai-chat").show_keys()
     end, "Show help")
 
     -- Always map `i` to focus input (not configurable — fundamental buffer behavior)
@@ -261,19 +258,6 @@ function M._yank_code_block()
         vim.fn.setreg("+", block.content)
         vim.fn.setreg('"', block.content)
         vim.notify("[ai-chat] Code block yanked", vim.log.levels.INFO)
-    else
-        vim.notify("[ai-chat] No code block under cursor", vim.log.levels.WARN)
-    end
-end
-
---- Apply the code block under cursor via diff.
-function M._apply_code_block()
-    if not state.bufnr or not state.winid then
-        return
-    end
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
-    if block then
-        require("ai-chat.ui.diff").apply(block)
     else
         vim.notify("[ai-chat] No code block under cursor", vim.log.levels.WARN)
     end

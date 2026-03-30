@@ -16,11 +16,8 @@ function M.setup()
     hl(0, "AiChatSpinner", { default = true, link = "DiagnosticInfo" })
     hl(0, "AiChatSeparator", { default = true, link = "WinSeparator" })
     hl(0, "AiChatInputPrompt", { default = true, link = "Question" })
-    hl(0, "AiChatContextTag", { default = true, link = "Tag" })
     hl(0, "AiChatThinking", { default = true, link = "Comment" })
     hl(0, "AiChatThinkingHeader", { default = true, link = "DiagnosticInfo" })
-    hl(0, "AiChatProposalSign", { default = true, link = "DiffAdd" })
-    hl(0, "AiChatProposalExpired", { default = true, link = "WarningMsg" })
 end
 
 return M

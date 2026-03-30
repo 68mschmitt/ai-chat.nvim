@@ -58,7 +58,6 @@ M.defaults = {
         thinking = false,
         show_thinking = true, -- render thinking blocks (false = strip entirely)
         auto_scroll = true,
-        show_context = true,
     },
 
     -- History / persistence
@@ -78,10 +77,6 @@ M.defaults = {
         focus_input = "<leader>ac",
         switch_model = "<leader>am",
         switch_provider = "<leader>ap",
-        -- Proposals (global)
-        proposal_list = "<leader>ar",
-        proposal_next = "<leader>an",
-        proposal_accept_all = "<leader>aR",
         -- Chat buffer (buffer-local)
         close = "q",
         cancel = "<C-c>",
@@ -90,7 +85,6 @@ M.defaults = {
         next_code_block = "]b",
         prev_code_block = "[b",
         yank_code_block = "gY",
-        apply_code_block = "ga",
         open_code_block = "gO",
         show_help = "?",
         -- Input buffer (buffer-local)

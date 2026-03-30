@@ -55,40 +55,7 @@ test("clear conversation", function()
     assert(#conv.messages == 0, "conv should be empty after clear")
 end)
 
--- Test 6: context tag parsing
-test("context tag parsing", function()
-    local ctx = require("ai-chat.context")
-    local tags = ctx._parse_tags("@buffer How do I fix this?")
-    assert(#tags == 1, "should find one tag")
-    assert(tags[1].name == "buffer", "tag should be buffer")
-end)
-
--- Test 7: multiple tags
-test("multiple context tags", function()
-    local ctx = require("ai-chat.context")
-    local tags = ctx._parse_tags("@buffer @selection fix errors")
-    assert(#tags == 2, "should find two tags")
-    assert(tags[1].name == "buffer")
-    assert(tags[2].name == "selection")
-end)
-
--- Test 8: file tag with path
-test("file tag with path", function()
-    local ctx = require("ai-chat.context")
-    local tags = ctx._parse_tags("@file:src/main.lua explain this")
-    assert(#tags == 1, "should find one tag")
-    assert(tags[1].name == "file")
-    assert(tags[1].args == "src/main.lua")
-end)
-
--- Test 9: strip tags
-test("tag stripping", function()
-    local ctx = require("ai-chat.context")
-    local stripped = ctx.strip_tags("@buffer @selection How do I fix this?")
-    assert(stripped == "How do I fix this?", "got: " .. stripped)
-end)
-
--- Test 10: token estimation
+-- Test 6: token estimation
 test("token estimation", function()
     local tokens = require("ai-chat.util.tokens")
     local count = tokens.estimate("hello world foo bar")
@@ -103,17 +70,7 @@ test("cost estimation ollama free", function()
     assert(cost == 0, "ollama should be free")
 end)
 
--- Test 12: slash commands exist
-test("slash commands registered", function()
-    local slash = require("ai-chat.commands.slash")
-    assert(slash.commands.clear, "/clear should exist")
-    assert(slash.commands.help, "/help should exist")
-    assert(slash.commands.model, "/model should exist")
-    assert(slash.commands.provider, "/provider should exist")
-    assert(slash.commands.save, "/save should exist")
-end)
-
--- Test 13: render module
+-- Test 8: render module
 test("render module loads", function()
     local render = require("ai-chat.ui.render")
     assert(render.render_message, "render_message should exist")
@@ -141,7 +98,6 @@ test("render message to buffer", function()
     render.render_message(buf, {
         role = "user",
         content = "Hello, how do I fix this?",
-        context = {},
     })
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -248,7 +204,6 @@ test("bold concealment applies extmarks", function()
     render.render_message(buf, {
         role = "assistant",
         content = "This is **bold text** here.",
-        context = {},
     })
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -291,7 +246,6 @@ test("bold concealment skips code blocks", function()
     render.render_message(buf, {
         role = "assistant",
         content = '```python\nx = "**not bold**"\n```',
-        context = {},
     })
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -325,7 +279,6 @@ test("multiple bold segments on one line", function()
     render.render_message(buf, {
         role = "assistant",
         content = "**first** and **second** bold",
-        context = {},
     })
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -379,7 +332,6 @@ test("language-less code blocks get fence highlighting", function()
     render.render_message(buf, {
         role = "assistant",
         content = "```\nsome code\n```",
-        context = {},
     })
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -408,4 +360,4 @@ test("language-less code blocks get fence highlighting", function()
 end)
 
 print("")
-print("ALL " .. 24 .. " TESTS PASSED")
+print("ALL " .. 19 .. " TESTS PASSED")
