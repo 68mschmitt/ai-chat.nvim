@@ -17,6 +17,7 @@ local state = {
     cancel_fn = nil,
     retry_count = 0,
     retry_timer = nil,
+    generation = 0,
 }
 
 --- Maximum retry attempts for transient errors.
@@ -38,6 +39,7 @@ function M.cancel()
     end
     if state.active and state.cancel_fn then
         state.cancel_fn()
+        state.generation = state.generation + 1
         state.active = false
         state.cancel_fn = nil
         state.retry_count = 0
@@ -77,17 +79,34 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
     local spinner = require("ai-chat.ui.spinner")
     local render = require("ai-chat.ui.render")
 
+    -- Increment generation to invalidate any stale callbacks from prior sends/cancels
+    state.generation = state.generation + 1
+    local gen = state.generation
+
     spinner.start(ui_state.chat_winid)
 
     -- Create stream renderer
     local stream_render = render.begin_response(ui_state.chat_bufnr)
 
-    state.cancel_fn = provider.chat(provider_messages, opts, {
+    -- Guard callbacks: enforce (on_chunk* · (on_done | on_error)) cardinality.
+    -- After the first terminal callback (on_done or on_error), all further
+    -- callbacks are silenced. The generation counter also silences callbacks
+    -- from a cancelled or superseded send.
+    local terminal_fired = false
+    local guarded = {
         on_chunk = function(chunk_text)
+            if terminal_fired or gen ~= state.generation then
+                return
+            end
             stream_render.append(chunk_text)
         end,
 
         on_done = function(response)
+            if terminal_fired or gen ~= state.generation then
+                return
+            end
+            terminal_fired = true
+
             state.active = false
             state.cancel_fn = nil
             state.retry_count = 0
@@ -104,6 +123,11 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
         end,
 
         on_error = function(err)
+            if terminal_fired or gen ~= state.generation then
+                return
+            end
+            terminal_fired = true
+
             spinner.stop()
 
             -- Check if we should auto-retry (centralized classification)
@@ -151,7 +175,9 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
                 callbacks.on_error(err)
             end
         end,
-    })
+    }
+
+    state.cancel_fn = provider.chat(provider_messages, opts, guarded)
 end
 
 --- Calculate exponential backoff delay.

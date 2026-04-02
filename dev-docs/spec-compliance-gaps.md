@@ -17,40 +17,6 @@ Systematic audit of the codebase against the five specification documents in `do
 
 ## Critical — Structural violations the specs explicitly warn against
 
-### GAP-02: No callback cardinality enforcement at the stream layer
-
-**Spec:** api-contracts.md §1 — *"Enforce `(on_chunk* · (on_done | on_error))` at the stream layer with a guard that silences callbacks after the first terminal."*
-
-**Location:** `lua/ai-chat/stream.lua:85–154`
-
-**Finding:** `stream.lua` has no generation counter, no `terminal_fired` flag, and no wrapper that intercepts callbacks after the first terminal. The only enforcement is the `errored` flag distributed across four separate provider files. Additionally, already-queued `vim.schedule` `on_chunk` callbacks can fire after `on_error`.
-
-**Impact:** A new provider that omits the `errored` check silently violates the contract. The stream layer cannot detect or prevent double-terminal callbacks.
-
-**Fix direction:** Wrap the provider's callbacks at the `_do_send` call site:
-```lua
-local terminal_fired = false
-local guarded = {
-    on_chunk = function(text)
-        if terminal_fired then return end
-        callbacks.on_chunk(text)
-    end,
-    on_done = function(response)
-        if terminal_fired then return end
-        terminal_fired = true
-        callbacks.on_done(response)
-    end,
-    on_error = function(err)
-        if terminal_fired then return end
-        terminal_fired = true
-        callbacks.on_error(err)
-    end,
-}
-```
-Pass `guarded` to the provider instead of raw callbacks.
-
----
-
 ### GAP-03: Cancel cannot silence already-queued `vim.schedule` callbacks
 
 **Spec:** api-contracts.md §4 — *"After cancel returns, `on_chunk`, `on_done`, and `on_error` will not be called."*
@@ -376,3 +342,4 @@ Also: `health.lua` has extensive provider-name branching (lines 52–111), argua
 | Gap | Resolved | Reference |
 |---|---|---|
 | GAP-01 | 2026-04-02 | `conversation.append()` now validates role, content type, and content emptiness. `restore()` uses lenient validation — skips invalid messages with warnings. |
+| GAP-02 | 2026-04-02 | Callback cardinality guard with generation counter in `stream.lua _do_send`. `terminal_fired` flag silences callbacks after first terminal; generation counter silences post-cancel and stale-send callbacks. Tests in `stream_guard_spec.lua`. |
