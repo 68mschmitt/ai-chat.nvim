@@ -17,24 +17,6 @@ Systematic audit of the codebase against the five specification documents in `do
 
 ## Critical — Structural violations the specs explicitly warn against
 
-### GAP-01: `conversation.append()` performs zero validation
-
-**Spec:** api-contracts.md §7 — *"Reject invalid mutations at the point of insertion, not three function calls later when an API rejects the result."*
-
-**Location:** `lua/ai-chat/conversation.lua:92–94`
-
-**Finding:** `append()` is a bare `table.insert(state.messages, message)`. No validation of:
-- Role legality (any string, nil, or absent accepted)
-- Content presence (nil or absent accepted)
-- Message sequence (two consecutive assistant messages accepted silently)
-- Type (non-table values accepted by `table.insert`)
-
-**Impact:** A retry bug that fires `on_done` twice produces two consecutive assistant messages. The Anthropic API requires strict alternation and rejects it with a 400 — three modules and two async boundaries away from the corruption point.
-
-**Fix direction:** Validate role ∈ `{"user", "assistant", "system"}`, require non-nil content, reject consecutive same-role messages (with an explicit override for system). Reject at the mutation point with a clear error.
-
----
-
 ### GAP-02: No callback cardinality enforcement at the stream layer
 
 **Spec:** api-contracts.md §1 — *"Enforce `(on_chunk* · (on_done | on_error))` at the stream layer with a guard that silences callbacks after the first terminal."*
@@ -393,4 +375,4 @@ Also: `health.lua` has extensive provider-name branching (lines 52–111), argua
 
 | Gap | Resolved | Reference |
 |---|---|---|
-| — | — | — |
+| GAP-01 | 2026-04-02 | `conversation.append()` now validates role, content type, and content emptiness. `restore()` uses lenient validation — skips invalid messages with warnings. |

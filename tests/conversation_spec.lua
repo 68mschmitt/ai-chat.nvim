@@ -132,3 +132,168 @@ describe("conversation._truncate_to_budget", function()
         assert.equals(2, #messages)
     end)
 end)
+
+describe("conversation.append validation", function()
+    before_each(function()
+        conversation.new("ollama", "llama3.2")
+    end)
+
+    it("accepts valid user message", function()
+        conversation.append({ role = "user", content = "hello" })
+        assert.equals(1, conversation.message_count())
+        local conv = conversation.get()
+        assert.equals("user", conv.messages[1].role)
+        assert.equals("hello", conv.messages[1].content)
+    end)
+
+    it("accepts valid assistant message", function()
+        conversation.append({ role = "user", content = "hello" })
+        conversation.append({ role = "assistant", content = "hi" })
+        assert.equals(2, conversation.message_count())
+    end)
+
+    it("accepts assistant message with empty content (cancelled stream)", function()
+        conversation.append({ role = "user", content = "hello" })
+        conversation.append({ role = "assistant", content = "" })
+        assert.equals(2, conversation.message_count())
+    end)
+
+    it("accepts messages with extra fields", function()
+        conversation.append({ role = "user", content = "hello", timestamp = 1000 })
+        conversation.append({
+            role = "assistant",
+            content = "hi",
+            usage = { input_tokens = 10, output_tokens = 5 },
+            model = "llama3.2",
+            thinking = "let me think...",
+            timestamp = 1001,
+        })
+        assert.equals(2, conversation.message_count())
+    end)
+
+    it("rejects non-table message", function()
+        local ok, err = pcall(conversation.append, "not a table")
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("rejects message with missing role", function()
+        local ok, err = pcall(conversation.append, { content = "no role" })
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("rejects message with missing content", function()
+        local ok, err = pcall(conversation.append, { role = "user" })
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("rejects message with invalid role", function()
+        local ok, err = pcall(conversation.append, { role = "admin", content = "x" })
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("rejects system role", function()
+        local ok, err = pcall(conversation.append, { role = "system", content = "x" })
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("rejects user message with empty content", function()
+        local ok, err = pcall(conversation.append, { role = "user", content = "" })
+        assert.is_false(ok)
+        assert.truthy(err, "should have error message")
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("includes actual type in error for non-table", function()
+        local ok, err = pcall(conversation.append, 42)
+        assert.is_false(ok)
+        assert.truthy(err:find("number"), "error should mention 'number'")
+    end)
+
+    it("includes actual role in error for invalid role", function()
+        local ok, err = pcall(conversation.append, { role = "admin", content = "x" })
+        assert.is_false(ok)
+        assert.truthy(err:find("admin"), "error should mention 'admin'")
+    end)
+end)
+
+describe("conversation.restore validation", function()
+    it("keeps valid messages and skips invalid ones", function()
+        conversation.restore({
+            id = "test-restore-validation",
+            messages = {
+                { role = "user", content = "hello" },
+                { role = "invalid", content = "bad role" },
+                { role = "assistant", content = "hi" },
+                "not a table",
+                { role = "user", content = "another" },
+            },
+            provider = "ollama",
+            model = "llama3.2",
+            created_at = 1000,
+        })
+
+        assert.equals(3, conversation.message_count())
+        local conv = conversation.get()
+        assert.equals("user", conv.messages[1].role)
+        assert.equals("hello", conv.messages[1].content)
+        assert.equals("assistant", conv.messages[2].role)
+        assert.equals("hi", conv.messages[2].content)
+        assert.equals("user", conv.messages[3].role)
+        assert.equals("another", conv.messages[3].content)
+    end)
+
+    it("produces empty conversation when all messages are invalid", function()
+        conversation.restore({
+            id = "test-all-invalid",
+            messages = {
+                "string",
+                42,
+                { role = "bad" },
+            },
+            provider = "ollama",
+            model = "llama3.2",
+        })
+
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("handles missing messages field gracefully", function()
+        conversation.restore({
+            id = "test-no-messages",
+            provider = "ollama",
+            model = "llama3.2",
+        })
+
+        assert.equals(0, conversation.message_count())
+    end)
+
+    it("preserves valid conversation metadata", function()
+        conversation.restore({
+            id = "meta-test",
+            messages = {
+                { role = "user", content = "hello" },
+                { content = "missing role" }, -- invalid, skipped
+            },
+            provider = "anthropic",
+            model = "claude-sonnet-4-20250514",
+            created_at = 12345,
+        })
+
+        local conv = conversation.get()
+        assert.equals("meta-test", conv.id)
+        assert.equals("anthropic", conv.provider)
+        assert.equals("claude-sonnet-4-20250514", conv.model)
+        assert.equals(12345, conv.created_at)
+        assert.equals(1, #conv.messages)
+    end)
+end)
