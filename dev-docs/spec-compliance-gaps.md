@@ -343,3 +343,12 @@ Also: `health.lua` has extensive provider-name branching (lines 52–111), argua
 |---|---|---|
 | GAP-01 | 2026-04-02 | `conversation.append()` now validates role, content type, and content emptiness. `restore()` uses lenient validation — skips invalid messages with warnings. |
 | GAP-02 | 2026-04-02 | Callback cardinality guard with generation counter in `stream.lua _do_send`. `terminal_fired` flag silences callbacks after first terminal; generation counter silences post-cancel and stale-send callbacks. Tests in `stream_guard_spec.lua`. |
+| GAP-03 | 2026-04-02 | Phase 1 commit — Generation counter + state machine phase transitions silence post-cancel callbacks. Verified by stream_guard_spec.lua cancel test. |
+| GAP-04 | 2026-04-02 | Phase 1 commit — stream.lua rewritten with phase-based state machine (idle/streaming/retrying), transition table, phase-specific state records. |
+| GAP-05 | 2026-04-02 | Phase 1 commit — store.lua now maintains index.json; list() reads only the index; write() updates index atomically; _rebuild_index() for recovery. |
+| GAP-07 | 2026-04-02 | Phase 1 commit — tests/providers/contract_spec.lua with 24 parameterized tests across all 4 providers. |
+| GAP-11 | 2026-04-02 | Phase 1 commit — models.lua is now authoritative source for context windows; conversation.lua accepts optional registry_lookup parameter. |
+| GAP-15 | 2026-04-02 | Phase 1 commit — docs/events.md documents all 7 autocmd events with payload shapes. |
+| GAP-18 | 2026-04-02 | Phase 1 commit — spinner.lua, log.lua, models.lua consolidated mutable locals into state tables. |
+| GAP-20 | 2026-04-02 | Phase 1 commit — removed `if provider == "ollama"` from costs.lua; documented health.lua deviation. |
+| GAP-21 | 2026-04-02 | Phase 1 commit — TTFT instrumentation with vim.uv.hrtime() in pipeline.lua → stream.lua on_chunk; logged and included in AiChatResponseDone. |

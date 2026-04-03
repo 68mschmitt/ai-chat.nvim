@@ -11,14 +11,55 @@ local M = {}
 
 local errors = require("ai-chat.errors")
 
----@class AiChatStreamState
-local state = {
-    active = false,
-    cancel_fn = nil,
-    retry_count = 0,
-    retry_timer = nil,
-    generation = 0,
+--- State machine transition diagram:
+---   idle        --send-->          streaming
+---   streaming   --done-->          idle
+---   streaming   --error_retryable-->  retrying
+---   streaming   --error_fatal-->   idle
+---   streaming   --cancel-->        idle
+---   retrying    --retry_fire-->    streaming
+---   retrying    --cancel-->        idle
+local TRANSITIONS = {
+    idle = { send = "streaming" },
+    streaming = { done = "idle", error_retryable = "retrying", error_fatal = "idle", cancel = "idle" },
+    retrying = { retry_fire = "streaming", cancel = "idle" },
 }
+
+-- Load-time validation: verify all target phases exist
+for phase, events in pairs(TRANSITIONS) do
+    for event, target in pairs(events) do
+        assert(
+            TRANSITIONS[target],
+            string.format("stream: transition %s + %s -> %s, but %s is not a known phase", phase, event, target, target)
+        )
+    end
+end
+
+--- Transition to the next phase.
+---@param current_phase string
+---@param event string
+---@return string  The next phase
+local function transition(current_phase, event)
+    local targets = TRANSITIONS[current_phase]
+    if not targets then
+        error(string.format("[ai-chat] stream: unknown phase %q", current_phase))
+    end
+    local next_phase = targets[event]
+    if not next_phase then
+        error(string.format("[ai-chat] stream: illegal transition %s + %s", current_phase, event))
+    end
+    return next_phase
+end
+
+---@class AiChatStreamState
+local state = { phase = "idle", generation = 0 }
+
+--- Set the stream state.
+---@param new_state table
+local function set_state(new_state)
+    assert(new_state.phase, "[ai-chat] stream: state must have a phase")
+    state = new_state
+end
 
 --- Maximum retry attempts for transient errors.
 local MAX_RETRIES = 3
@@ -26,27 +67,33 @@ local MAX_RETRIES = 3
 --- Returns whether a response is currently being streamed.
 ---@return boolean
 function M.is_active()
-    return state.active
+    return state.phase ~= "idle"
 end
 
 --- Cancel the active generation.
 ---@return boolean  true if a stream was cancelled
 function M.cancel()
-    if state.retry_timer then
-        state.retry_timer:stop()
-        state.retry_timer:close()
-        state.retry_timer = nil
+    if state.phase == "idle" then
+        return false
     end
-    if state.active and state.cancel_fn then
-        state.cancel_fn()
-        state.generation = state.generation + 1
-        state.active = false
-        state.cancel_fn = nil
-        state.retry_count = 0
-        require("ai-chat.ui.spinner").stop()
-        return true
+
+    local gen = state.generation + 1
+
+    if state.phase == "retrying" then
+        local timer = state.retry_timer
+        transition(state.phase, "cancel")
+        set_state({ phase = "idle", generation = gen })
+        timer:stop()
+        timer:close()
+    elseif state.phase == "streaming" then
+        local fn = state.cancel_fn
+        transition(state.phase, "cancel")
+        set_state({ phase = "idle", generation = gen })
+        fn()
     end
-    return false
+
+    require("ai-chat.ui.spinner").stop()
+    return true
 end
 
 --- Send a chat request with streaming. Handles the full lifecycle:
@@ -56,17 +103,18 @@ end
 ---@param provider_messages AiChatMessage[]  Messages to send (already built)
 ---@param opts AiChatProviderOpts  Provider options (model, temperature, etc.)
 ---@param ui_state { chat_bufnr: number, chat_winid: number }  UI references
----@param callbacks { on_done: fun(response: AiChatResponse), on_error: fun(err: AiChatError) }
-function M.send(provider, provider_messages, opts, ui_state, callbacks)
-    if state.active then
+---@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }
+---@param send_hrtime number?  High-resolution time when send started (for TTFT measurement)
+function M.send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+    if state.phase ~= "idle" then
         vim.notify("[ai-chat] Already generating a response. Press <C-c> to cancel.", vim.log.levels.WARN)
         return
     end
 
-    state.active = true
-    state.retry_count = 0
+    transition(state.phase, "send")
+    set_state({ phase = "streaming", generation = state.generation + 1, cancel_fn = function() end })
 
-    M._do_send(provider, provider_messages, opts, ui_state, callbacks)
+    M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
 end
 
 --- Internal: perform the actual send (called directly and on retry).
@@ -74,15 +122,13 @@ end
 ---@param provider_messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
 ---@param ui_state { chat_bufnr: number, chat_winid: number }
----@param callbacks { on_done: fun(response: AiChatResponse), on_error: fun(err: AiChatError) }
-function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
+---@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }
+---@param send_hrtime number?  High-resolution time when send started (for TTFT measurement)
+function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
     local spinner = require("ai-chat.ui.spinner")
     local render = require("ai-chat.ui.render")
 
-    -- Increment generation to invalidate any stale callbacks from prior sends/cancels
-    state.generation = state.generation + 1
     local gen = state.generation
-
     spinner.start(ui_state.chat_winid)
 
     -- Create stream renderer
@@ -93,11 +139,25 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
     -- callbacks are silenced. The generation counter also silences callbacks
     -- from a cancelled or superseded send.
     local terminal_fired = false
+    local first_chunk = true
+
     local guarded = {
         on_chunk = function(chunk_text)
             if terminal_fired or gen ~= state.generation then
                 return
             end
+
+            -- GAP-21: TTFT measurement on first chunk
+            if first_chunk and send_hrtime then
+                first_chunk = false
+                local uv = vim.uv or vim.loop
+                local ttft_ms = (uv.hrtime() - send_hrtime) / 1e6
+                require("ai-chat.util.log").info(string.format("TTFT: %.0fms", ttft_ms))
+                state.ttft_ms = ttft_ms -- save for on_done
+            else
+                first_chunk = false
+            end
+
             stream_render.append(chunk_text)
         end,
 
@@ -107,9 +167,9 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
             end
             terminal_fired = true
 
-            state.active = false
-            state.cancel_fn = nil
-            state.retry_count = 0
+            local ttft = state.ttft_ms
+            transition(state.phase, "done")
+            set_state({ phase = "idle", generation = gen })
             spinner.stop()
 
             -- Finalize rendering with actual provider/model for cost calculation
@@ -118,8 +178,8 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
                 model = opts.model,
             })
 
-            -- Notify coordinator
-            callbacks.on_done(response)
+            -- Notify coordinator with TTFT
+            callbacks.on_done(response, ttft)
         end,
 
         on_error = function(err)
@@ -131,53 +191,69 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks)
             spinner.stop()
 
             -- Check if we should auto-retry (centralized classification)
-            if errors.is_retryable(err) and state.retry_count < MAX_RETRIES then
-                state.retry_count = state.retry_count + 1
-                local delay = M._backoff_delay(state.retry_count)
+            if errors.is_retryable(err) and state.phase == "streaming" then
+                -- Count retries (stored on state for retrying phase)
+                local retry_count = (state.retry_count or 0) + 1
+                if retry_count <= MAX_RETRIES then
+                    local delay = M._backoff_delay(retry_count)
 
-                -- Show retry message in the stream render
-                stream_render.error({
-                    code = err.code,
-                    message = string.format(
-                        "%s (retrying in %ds, attempt %d/%d)",
-                        err.message,
-                        delay,
-                        state.retry_count,
-                        MAX_RETRIES
-                    ),
-                    retryable = true,
-                })
+                    stream_render.error({
+                        code = err.code,
+                        message = string.format(
+                            "%s (retrying in %ds, attempt %d/%d)",
+                            err.message,
+                            delay,
+                            retry_count,
+                            MAX_RETRIES
+                        ),
+                        retryable = true,
+                    })
 
-                -- Schedule retry
-                local uv = vim.uv or vim.loop
-                state.retry_timer = uv.new_timer()
-                state.retry_timer:start(
-                    delay * 1000,
-                    0,
-                    vim.schedule_wrap(function()
-                        if state.retry_timer then
-                            state.retry_timer:stop()
-                            state.retry_timer:close()
-                            state.retry_timer = nil
-                        end
-                        if state.active then
-                            M._do_send(provider, provider_messages, opts, ui_state, callbacks)
-                        end
-                    end)
-                )
-            else
-                -- Final failure
-                state.active = false
-                state.cancel_fn = nil
-                state.retry_count = 0
+                    local uv = vim.uv or vim.loop
+                    local timer = uv.new_timer()
 
-                stream_render.error(err)
-                callbacks.on_error(err)
+                    transition(state.phase, "error_retryable")
+                    set_state({
+                        phase = "retrying",
+                        generation = gen,
+                        retry_count = retry_count,
+                        retry_timer = timer,
+                    })
+
+                    timer:start(
+                        delay * 1000,
+                        0,
+                        vim.schedule_wrap(function()
+                            if state.phase == "retrying" and state.retry_timer == timer then
+                                timer:stop()
+                                timer:close()
+                                transition(state.phase, "retry_fire")
+                                set_state({
+                                    phase = "streaming",
+                                    generation = gen,
+                                    cancel_fn = function() end,
+                                    retry_count = retry_count,
+                                })
+                                M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+                            end
+                        end)
+                    )
+                    return
+                end
             end
+
+            -- Fatal error or max retries exceeded
+            transition(state.phase, "error_fatal")
+            set_state({ phase = "idle", generation = gen })
+
+            stream_render.error(err)
+            callbacks.on_error(err)
         end,
     }
 
-    state.cancel_fn = provider.chat(provider_messages, opts, guarded)
+    local cancel_fn = provider.chat(provider_messages, opts, guarded)
+    -- Update cancel_fn on state (we're in streaming phase)
+    state.cancel_fn = cancel_fn
 end
 
 --- Calculate exponential backoff delay.

@@ -174,6 +174,27 @@ describe("history store", function()
                 store.delete("does-not-exist")
             end)
         end)
+
+        it("removes deleted conversation from index", function()
+            store.write({
+                id = "delete-from-index",
+                name = "Delete me",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000000,
+                updated_at = 1700000000,
+                message_count = 0,
+                messages = {},
+            })
+
+            local entries = store.list()
+            assert.equals(1, #entries)
+
+            store.delete("delete-from-index")
+
+            entries = store.list()
+            assert.equals(0, #entries)
+        end)
     end)
 
     describe("pruning", function()
@@ -241,6 +262,140 @@ describe("history store", function()
 
             local loaded = store.read("empty")
             assert.is_nil(loaded)
+        end)
+    end)
+
+    describe("index file", function()
+        it("creates index file on first write", function()
+            store.write({
+                id = "index-test",
+                name = "Index test",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000000,
+                updated_at = 1700000000,
+                message_count = 1,
+                messages = { { role = "user", content = "test" } },
+            })
+
+            local index_path = test_dir .. "/index.json"
+            assert.equals(1, vim.fn.filereadable(index_path))
+        end)
+
+        it("list() reads from index instead of scanning files", function()
+            store.write({
+                id = "index-read-1",
+                name = "Entry 1",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000000,
+                updated_at = 1700000000,
+                message_count = 1,
+                messages = { { role = "user", content = "msg1" } },
+            })
+            store.write({
+                id = "index-read-2",
+                name = "Entry 2",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000100,
+                updated_at = 1700000100,
+                message_count = 1,
+                messages = { { role = "user", content = "msg2" } },
+            })
+
+            local entries = store.list()
+            assert.equals(2, #entries)
+            assert.equals("index-read-2", entries[1].id)
+            assert.equals("index-read-1", entries[2].id)
+        end)
+
+        it("rebuilds index when missing", function()
+            -- Write a conversation directly without going through store.write
+            -- to simulate a missing index
+            local entry = {
+                id = "orphan",
+                name = "Orphan entry",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000000,
+                updated_at = 1700000000,
+                message_count = 1,
+                messages = { { role = "user", content = "orphan" } },
+            }
+            local filepath = test_dir .. "/orphan.json"
+            vim.fn.writefile({ vim.json.encode(entry) }, filepath)
+
+            -- Delete the index to simulate it being missing
+            local index_path = test_dir .. "/index.json"
+            if vim.fn.filereadable(index_path) == 1 then
+                vim.fn.delete(index_path)
+            end
+
+            -- list() should rebuild the index
+            local entries = store.list()
+            assert.equals(1, #entries)
+            assert.equals("orphan", entries[1].id)
+
+            -- Index should now exist
+            assert.equals(1, vim.fn.filereadable(index_path))
+        end)
+
+        it("_rebuild_index() reconstructs index from files", function()
+            -- Write entries directly without index
+            for i = 1, 3 do
+                local entry = {
+                    id = "rebuild-" .. i,
+                    name = "Rebuild " .. i,
+                    provider = "ollama",
+                    model = "llama3.2",
+                    created_at = 1700000000 + i,
+                    updated_at = 1700000000 + i,
+                    message_count = 1,
+                    messages = { { role = "user", content = "msg" .. i } },
+                }
+                local filepath = test_dir .. "/rebuild-" .. i .. ".json"
+                vim.fn.writefile({ vim.json.encode(entry) }, filepath)
+            end
+
+            -- Delete index if it exists
+            local index_path = test_dir .. "/index.json"
+            if vim.fn.filereadable(index_path) == 1 then
+                vim.fn.delete(index_path)
+            end
+
+            -- Rebuild
+            store._rebuild_index()
+
+            -- Verify index was created
+            assert.equals(1, vim.fn.filereadable(index_path))
+
+            -- Verify entries are in index
+            local entries = store.list()
+            assert.equals(3, #entries)
+        end)
+
+        it("index auto-rebuilds when corrupt", function()
+            -- Write a valid entry first
+            store.write({
+                id = "valid-entry",
+                name = "Valid",
+                provider = "ollama",
+                model = "llama3.2",
+                created_at = 1700000000,
+                updated_at = 1700000000,
+                message_count = 1,
+                messages = { { role = "user", content = "valid" } },
+            })
+
+            -- Corrupt the index
+            local index_path = test_dir .. "/index.json"
+            vim.fn.writefile({ "not valid json {{{" }, index_path)
+
+            -- list() should detect corruption and rebuild
+            local entries = store.list()
+            assert.equals(1, #entries)
+            assert.equals("valid-entry", entries[1].id)
         end)
     end)
 end)

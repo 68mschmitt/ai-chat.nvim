@@ -52,6 +52,10 @@ function M.send(text, ui_state, deps)
     local conv = deps.conversation
     local stream = deps.stream
 
+    -- GAP-21: Capture send time for TTFT measurement
+    local uv = vim.uv or vim.loop
+    local send_hrtime = uv.hrtime()
+
     -- Ensure panel is open
     if not ui_state.is_open then
         deps.open_fn()
@@ -123,7 +127,7 @@ function M.send(text, ui_state, deps)
         chat_bufnr = ui_state.chat_bufnr,
         chat_winid = ui_state.chat_winid,
     }, {
-        on_done = function(response)
+        on_done = function(response, ttft_ms)
             deps.update_winbar_fn()
             conv.append({
                 role = "assistant",
@@ -143,7 +147,7 @@ function M.send(text, ui_state, deps)
             end
             pcall(vim.api.nvim_exec_autocmds, "User", {
                 pattern = "AiChatResponseDone",
-                data = { response = response, usage = response.usage },
+                data = { response = response, usage = response.usage, ttft_ms = ttft_ms },
             })
         end,
         on_error = function(err)
@@ -153,7 +157,7 @@ function M.send(text, ui_state, deps)
                 data = { error = err },
             })
         end,
-    })
+    }, send_hrtime)
 end
 
 return M

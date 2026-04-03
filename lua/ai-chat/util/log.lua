@@ -3,21 +3,23 @@
 
 local M = {}
 
-local log_config = {}
-local log_file = nil
+local state = {
+    config = {},
+    file = nil,
+}
 
 --- Initialize the logger.
 ---@param cfg table  The log section of AiChatConfig
 function M.init(cfg)
-    log_config = cfg
-    if not log_config.enabled then
+    state.config = cfg
+    if not state.config.enabled then
         return
     end
 
-    log_file = cfg.file or (vim.fn.stdpath("data") .. "/ai-chat/log.txt")
+    state.file = cfg.file or (vim.fn.stdpath("data") .. "/ai-chat/log.txt")
 
     -- Ensure parent directory exists
-    local dir = vim.fn.fnamemodify(log_file, ":h")
+    local dir = vim.fn.fnamemodify(state.file, ":h")
     vim.fn.mkdir(dir, "p")
 end
 
@@ -28,11 +30,11 @@ local levels = { debug = 1, info = 2, warn = 3, error = 4 }
 ---@param msg string
 ---@param data? any  Optional structured data to log
 function M.write(level, msg, data)
-    if not log_config.enabled or not log_file then
+    if not state.config.enabled or not state.file then
         return
     end
 
-    local config_level = levels[log_config.level] or 2
+    local config_level = levels[state.config.level] or 2
     local msg_level = levels[level] or 2
 
     if msg_level < config_level then
@@ -49,7 +51,7 @@ function M.write(level, msg, data)
     end
 
     -- Append to log file
-    vim.fn.writefile({ entry }, log_file, "a")
+    vim.fn.writefile({ entry }, state.file, "a")
 
     -- Check rotation
     M._maybe_rotate()
@@ -71,35 +73,35 @@ end
 
 --- Open the log file in a buffer.
 function M.open()
-    if not log_file then
+    if not state.file then
         vim.notify("[ai-chat] Logging not initialized", vim.log.levels.WARN)
         return
     end
 
-    if vim.fn.filereadable(log_file) ~= 1 then
+    if vim.fn.filereadable(state.file) ~= 1 then
         vim.notify("[ai-chat] No log file found", vim.log.levels.INFO)
         return
     end
 
-    vim.cmd("botright split " .. vim.fn.fnameescape(log_file))
+    vim.cmd("botright split " .. vim.fn.fnameescape(state.file))
     vim.cmd("normal! G") -- Jump to end
 end
 
 --- Rotate the log file if it exceeds the size limit.
 function M._maybe_rotate()
-    if not log_file or not log_config.max_size_mb then
+    if not state.file or not state.config.max_size_mb then
         return
     end
 
-    local size = vim.fn.getfsize(log_file)
+    local size = vim.fn.getfsize(state.file)
     if size < 0 then
         return
     end
 
-    local max_bytes = log_config.max_size_mb * 1024 * 1024
+    local max_bytes = state.config.max_size_mb * 1024 * 1024
     if size > max_bytes then
-        local old = log_file .. ".old"
-        vim.fn.rename(log_file, old)
+        local old = state.file .. ".old"
+        vim.fn.rename(state.file, old)
     end
 end
 

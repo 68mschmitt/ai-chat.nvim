@@ -121,9 +121,13 @@ function M.restore(conversation)
     end
 
     if skipped > 0 then
-        log.warn(("conversation.restore: restored %d of %d messages (%d skipped)"):format(
-            #valid_messages, #raw_messages, skipped
-        ))
+        log.warn(
+            ("conversation.restore: restored %d of %d messages (%d skipped)"):format(
+                #valid_messages,
+                #raw_messages,
+                skipped
+            )
+        )
     end
 
     state = {
@@ -189,9 +193,10 @@ end
 --- Includes system prompt, conversation history with inlined context,
 --- and applies context window truncation if needed.
 ---@param config AiChatConfig
+---@param registry_lookup? fun(provider: string, model: string): number?  Optional context window lookup from models registry
 ---@return AiChatMessage[] messages  Messages to send
 ---@return number? truncated_count  Number of messages dropped (nil if no truncation)
-function M.build_provider_messages(config)
+function M.build_provider_messages(config, registry_lookup)
     local messages = {}
 
     -- System prompt
@@ -204,7 +209,7 @@ function M.build_provider_messages(config)
     end
 
     -- Apply context window truncation (per-model, with provider fallback)
-    local max_tokens = M._get_context_window(state.provider, state.model, config)
+    local max_tokens = M._get_context_window(state.provider, state.model, config, registry_lookup)
     local truncated = M._truncate_to_budget(messages, max_tokens)
 
     return messages, truncated
@@ -227,20 +232,31 @@ end
 ---@param provider string
 ---@param model string
 ---@param config table  Resolved plugin config (passed by coordinator)
+---@param registry_lookup? fun(provider: string, model: string): number?  Optional context window lookup from models registry
 ---@return number
-function M._get_context_window(provider, model, config)
-    -- 1. Check hardcoded per-model table
+function M._get_context_window(provider, model, config, registry_lookup)
+    -- 1. Check registry lookup if provided (models.lua)
+    if registry_lookup then
+        local ctx = registry_lookup(provider, model)
+        if ctx then
+            return ctx
+        end
+    end
+
+    -- 2. Check hardcoded per-model table
     if model and model_context_windows[model] then
         return model_context_windows[model]
     end
-    -- 2. Check user config override (allows configuring custom models)
+
+    -- 3. Check user config override (allows configuring custom models)
     if config and config.providers and config.providers[provider] then
         local provider_cfg = config.providers[provider]
         if provider_cfg.context_window then
             return provider_cfg.context_window
         end
     end
-    -- 3. Fall back to provider default
+
+    -- 4. Fall back to provider default
     return provider_context_windows[provider] or 4096
 end
 

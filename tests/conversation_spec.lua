@@ -92,7 +92,6 @@ describe("conversation.build_provider_messages", function()
         assert.equals("assistant", messages[3].role)
         assert.is_nil(truncated, "should not truncate short conversations")
     end)
-
 end)
 
 describe("conversation._truncate_to_budget", function()

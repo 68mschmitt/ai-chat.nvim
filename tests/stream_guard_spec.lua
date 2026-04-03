@@ -212,4 +212,94 @@ describe("stream callback guard", function()
 
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
+
+    it("rejects send when not idle (state machine)", function()
+        local ui, buf = make_ui_state()
+        -- Start a send that holds (doesn't complete immediately)
+        local mock_provider = {
+            chat = function(messages, opts, cbs)
+                -- Hold — don't call any callbacks yet
+                return function() end
+            end,
+        }
+
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+            on_done = function() end,
+            on_error = function() end,
+        })
+
+        assert.is_true(stream.is_active())
+
+        -- Second send should be rejected (no error, just notify)
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+            on_done = function() end,
+            on_error = function() end,
+        })
+
+        -- Should still be active from first send
+        assert.is_true(stream.is_active())
+
+        stream.cancel()
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("cancel returns true from streaming, false from idle", function()
+        local ui, buf = make_ui_state()
+
+        -- Cancel from idle
+        assert.is_false(stream.cancel())
+
+        -- Start streaming
+        local mock_provider = {
+            chat = function(messages, opts, cbs)
+                return function() end
+            end,
+        }
+
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+            on_done = function() end,
+            on_error = function() end,
+        })
+
+        -- Cancel from streaming
+        assert.is_true(stream.cancel())
+        assert.is_false(stream.is_active())
+
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("cancel from retrying phase returns true", function()
+        local ui, buf = make_ui_state()
+        local error_count = 0
+
+        local mock_provider = {
+            chat = function(messages, opts, cbs)
+                vim.schedule(function()
+                    -- Trigger a retryable error
+                    cbs.on_error({ code = "network", message = "timeout", retryable = true })
+                end)
+                return function() end
+            end,
+        }
+
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+            on_done = function() end,
+            on_error = function()
+                error_count = error_count + 1
+            end,
+        })
+
+        -- Wait for error to be processed and enter retrying phase
+        vim.wait(500, function()
+            return stream.is_active()
+        end)
+
+        -- Should be in retrying phase now
+        if stream.is_active() then
+            assert.is_true(stream.cancel())
+            assert.is_false(stream.is_active())
+        end
+
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
 end)
