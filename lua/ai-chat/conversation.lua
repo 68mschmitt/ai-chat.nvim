@@ -4,12 +4,23 @@
 
 local M = {}
 
+local log = require("ai-chat.util.log")
+local tokens = require("ai-chat.util.tokens")
+
 ---@class AiChatConversation
 ---@field id string
 ---@field messages AiChatMessage[]
 ---@field provider string
 ---@field model string
 ---@field created_at number
+
+---@class AiChatMessage
+---@field role string "user" or "assistant"
+---@field content string
+---@field timestamp? number
+---@field usage? table
+---@field model? string
+---@field thinking? string
 
 ---@class AiChatConversationState
 local state = {
@@ -54,6 +65,30 @@ local model_context_windows = {
     ["phi3"] = 4096,
 }
 
+--- Valid roles for conversation messages.
+local valid_roles = { user = true, assistant = true }
+
+--- Validate a message structurally.
+--- Returns true on success, false + reason string on failure.
+---@param message any
+---@return boolean ok
+---@return string? reason
+local function validate_message(message)
+    if type(message) ~= "table" then
+        return false, ("message must be a table, got: %s"):format(type(message))
+    end
+    if type(message.role) ~= "string" or message.role == "" then
+        return false, ("role must be a non-empty string, got: %s"):format(vim.inspect(message.role))
+    end
+    if not valid_roles[message.role] then
+        return false, ("role must be 'user' or 'assistant', got: %q"):format(message.role)
+    end
+    if type(message.content) ~= "string" then
+        return false, ("content must be a string, got: %s"):format(type(message.content))
+    end
+    return true
+end
+
 --- Create a new conversation with the given provider and model.
 ---@param provider string
 ---@param model string
@@ -70,11 +105,36 @@ function M.new(provider, model)
 end
 
 --- Restore a conversation from a loaded table (e.g., from history).
+--- Uses lenient validation: invalid messages are skipped with warnings, valid ones are kept.
 ---@param conversation AiChatConversation
 function M.restore(conversation)
+    local raw_messages = conversation.messages or {}
+    local valid_messages = {}
+    local skipped = 0
+
+    for i, msg in ipairs(raw_messages) do
+        local ok, reason = validate_message(msg)
+        if ok then
+            table.insert(valid_messages, msg)
+        else
+            skipped = skipped + 1
+            log.warn(("conversation.restore: skipping message %d: %s"):format(i, reason))
+        end
+    end
+
+    if skipped > 0 then
+        log.warn(
+            ("conversation.restore: restored %d of %d messages (%d skipped)"):format(
+                #valid_messages,
+                #raw_messages,
+                skipped
+            )
+        )
+    end
+
     state = {
         id = conversation.id or M._uuid(),
-        messages = conversation.messages or {},
+        messages = valid_messages,
         provider = conversation.provider or "",
         model = conversation.model or "",
         created_at = conversation.created_at or os.time(),
@@ -88,8 +148,16 @@ function M.get()
 end
 
 --- Append a message to the conversation history.
+--- Validates structural invariants and raises error() on invalid input.
 ---@param message AiChatMessage
 function M.append(message)
+    local ok, reason = validate_message(message)
+    if not ok then
+        error(("[ai-chat] conversation.append: %s"):format(reason), 2)
+    end
+    if message.role == "user" and message.content == "" then
+        error("[ai-chat] conversation.append: user message content must be non-empty", 2)
+    end
     table.insert(state.messages, message)
 end
 
@@ -127,9 +195,10 @@ end
 --- Includes system prompt, conversation history with inlined context,
 --- and applies context window truncation if needed.
 ---@param config AiChatConfig
+---@param registry_lookup? fun(provider: string, model: string): number?  Optional context window lookup from models registry
 ---@return AiChatMessage[] messages  Messages to send
 ---@return number? truncated_count  Number of messages dropped (nil if no truncation)
-function M.build_provider_messages(config)
+function M.build_provider_messages(config, registry_lookup)
     local messages = {}
 
     -- System prompt
@@ -142,7 +211,7 @@ function M.build_provider_messages(config)
     end
 
     -- Apply context window truncation (per-model, with provider fallback)
-    local max_tokens = M._get_context_window(state.provider, state.model, config)
+    local max_tokens = M._get_context_window(state.provider, state.model, config, registry_lookup)
     local truncated = M._truncate_to_budget(messages, max_tokens)
 
     return messages, truncated
@@ -165,20 +234,31 @@ end
 ---@param provider string
 ---@param model string
 ---@param config table  Resolved plugin config (passed by coordinator)
+---@param registry_lookup? fun(provider: string, model: string): number?  Optional context window lookup from models registry
 ---@return number
-function M._get_context_window(provider, model, config)
-    -- 1. Check hardcoded per-model table
+function M._get_context_window(provider, model, config, registry_lookup)
+    -- 1. Check registry lookup if provided (models.lua)
+    if registry_lookup then
+        local ctx = registry_lookup(provider, model)
+        if ctx then
+            return ctx
+        end
+    end
+
+    -- 2. Check hardcoded per-model table
     if model and model_context_windows[model] then
         return model_context_windows[model]
     end
-    -- 2. Check user config override (allows configuring custom models)
+
+    -- 3. Check user config override (allows configuring custom models)
     if config and config.providers and config.providers[provider] then
         local provider_cfg = config.providers[provider]
         if provider_cfg.context_window then
             return provider_cfg.context_window
         end
     end
-    -- 3. Fall back to provider default
+
+    -- 4. Fall back to provider default
     return provider_context_windows[provider] or 4096
 end
 
@@ -189,8 +269,6 @@ end
 ---@param max_tokens number  Maximum token budget
 ---@return number?  Number of messages dropped, or nil if no truncation
 function M._truncate_to_budget(messages, max_tokens)
-    local tokens = require("ai-chat.util.tokens")
-
     -- Estimate total tokens
     local total = 0
     for _, msg in ipairs(messages) do

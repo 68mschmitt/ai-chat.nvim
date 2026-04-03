@@ -34,10 +34,6 @@ local totals = {
 ---@param ext_pricing? { input: number, output: number }  External pricing (e.g., from models.dev registry)
 ---@return number  Estimated cost in USD
 function M.estimate(provider, model, usage, ext_pricing)
-    if provider == "ollama" then
-        return 0
-    end
-
     -- 1. Use externally-provided pricing (resolved by coordinator)
     if ext_pricing then
         local input_cost = (usage.input_tokens / 1000000) * ext_pricing.input

@@ -94,7 +94,7 @@ function M.chat(messages, opts, callbacks)
         vim.schedule(function()
             callbacks.on_error({
                 code = "auth",
-                message = "No OpenAI API key. Set OPENAI_API_KEY env var.",
+                message = "No OpenAI API key. Set OPENAI_API_KEY env var. Check that OPENAI_API_KEY is set correctly and the endpoint URL is valid.",
             })
         end)
         return function() end
@@ -142,7 +142,9 @@ function M.chat(messages, opts, callbacks)
                     vim.schedule(function()
                         callbacks.on_error({
                             code = "network",
-                            message = "OpenAI connection failed: " .. tostring(err),
+                            message = "OpenAI connection failed: "
+                                .. tostring(err)
+                                .. " Check your network connection and endpoint URL.",
                             retryable = true,
                         })
                     end)
@@ -254,7 +256,9 @@ function M.chat(messages, opts, callbacks)
                 end
                 callbacks.on_error({
                     code = "network",
-                    message = "OpenAI request failed (curl exit " .. result.code .. ")",
+                    message = "OpenAI request failed (curl exit "
+                        .. result.code
+                        .. "). Check your network connection and endpoint URL.",
                     retryable = true,
                 })
             else

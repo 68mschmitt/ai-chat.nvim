@@ -8,6 +8,9 @@
 
 local M = {}
 
+local config = require("ai-chat.config")
+local tokens = require("ai-chat.util.tokens")
+
 --- Thinking tag patterns (both <think> and <thinking> variants).
 M.open_pats = { "^<think>%s*$", "^<thinking>%s*$" }
 M.close_pats = { "^</think>%s*$", "^</thinking>%s*$" }
@@ -84,11 +87,9 @@ end
 ---@param from_line number   Start line (0-indexed)
 ---@param to_line number     End line (0-indexed, exclusive)
 function M.process(bufnr, ns, from_line, to_line)
-    local ok, cfg = pcall(function()
-        return require("ai-chat.config").get()
-    end)
     local show_thinking = true
-    if ok and cfg and cfg.chat then
+    local cfg = config.get()
+    if cfg and cfg.chat then
         show_thinking = cfg.chat.show_thinking ~= false
     end
 
@@ -120,8 +121,6 @@ end
 ---@param ns number  Extmark namespace ID
 ---@param blocks { open: number, close: number }[]
 function M._style_blocks(bufnr, ns, blocks)
-    local tokens = require("ai-chat.util.tokens")
-
     for _, block in ipairs(blocks) do
         -- Count tokens in the thinking content (lines between open and close tags)
         local content_lines = vim.api.nvim_buf_get_lines(bufnr, block.open + 1, block.close, false)

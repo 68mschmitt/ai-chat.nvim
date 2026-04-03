@@ -68,7 +68,6 @@ function M.setup(keys)
             require("ai-chat").set_provider()
         end, { desc = "[ai-chat] Switch provider" })
     end
-
 end
 
 return M

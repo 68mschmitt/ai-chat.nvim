@@ -1,6 +1,10 @@
 --- ai-chat.nvim — :checkhealth integration
 --- Validates the runtime environment: neovim version, curl, provider
 --- reachability, treesitter markdown parser, writable directories.
+---
+--- NOTE: Provider-specific checks here are acceptable for diagnostics (:checkhealth).
+--- Ideally each provider would expose a health_check() function, but the
+--- current approach is simpler and health checks are a read-only concern.
 
 local M = {}
 

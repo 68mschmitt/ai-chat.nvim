@@ -191,8 +191,11 @@ function M.chat(messages, opts, callbacks)
                                 local err_code = "server"
                                 if parsed.error and parsed.error.type == "rate_limit_error" then
                                     err_code = "rate_limit"
+                                    err_msg = err_msg
+                                        .. " Wait a moment and try again, or check your Anthropic plan limits."
                                 elseif parsed.error and parsed.error.type == "authentication_error" then
                                     err_code = "auth"
+                                    err_msg = err_msg .. " Check that ANTHROPIC_API_KEY is set correctly."
                                 elseif parsed.error and parsed.error.type == "invalid_request_error" then
                                     err_code = "invalid_request"
                                 elseif parsed.error and parsed.error.type == "not_found_error" then
@@ -286,7 +289,9 @@ function M.chat(messages, opts, callbacks)
                 end
                 callbacks.on_error({
                     code = "network",
-                    message = "Anthropic request failed (curl exit " .. result.code .. ")",
+                    message = "Anthropic request failed (curl exit "
+                        .. result.code
+                        .. "). Check your network connection.",
                     retryable = true,
                 })
             else

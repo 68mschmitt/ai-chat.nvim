@@ -3,14 +3,15 @@
 
 local M = {}
 
+local chat = require("ai-chat.ui.chat")
+local input = require("ai-chat.ui.input")
+local render = require("ai-chat.ui.render")
+
 --- Open the chat panel. Creates the split, chat buffer, and input area.
 ---@param ui_config table  The ui section of AiChatConfig
 ---@param conversation AiChatConversation  Current conversation to render
 ---@return { chat_bufnr: number, chat_winid: number, input_bufnr: number, input_winid: number }
 function M.open(ui_config, conversation)
-    local chat = require("ai-chat.ui.chat")
-    local input = require("ai-chat.ui.input")
-
     -- Remember the user's current window so we can return to it
     local user_winid = vim.api.nvim_get_current_win()
 
@@ -28,7 +29,6 @@ function M.open(ui_config, conversation)
 
     -- Render existing conversation if any
     if conversation and #conversation.messages > 0 then
-        local render = require("ai-chat.ui.render")
         render.render_conversation(chat_result.bufnr, conversation)
     end
 
@@ -53,8 +53,8 @@ end
 --- Close the chat panel. Cleans up windows and buffers.
 function M.close()
     -- Close input first (it's inside the chat split)
-    require("ai-chat.ui.input").destroy()
-    require("ai-chat.ui.chat").destroy()
+    input.destroy()
+    chat.destroy()
 end
 
 return M

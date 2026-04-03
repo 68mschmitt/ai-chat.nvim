@@ -7,6 +7,14 @@
 
 local M = {}
 
+local providers = require("ai-chat.providers")
+local render = require("ai-chat.ui.render")
+local input_mod = require("ai-chat.ui.input")
+local history = require("ai-chat.history")
+local models = require("ai-chat.models")
+local costs = require("ai-chat.util.costs")
+local log = require("ai-chat.util.log")
+
 --- State shared with the pipeline across sends.
 --- Populated by init() before first use.
 ---@class PipelineState
@@ -52,6 +60,10 @@ function M.send(text, ui_state, deps)
     local conv = deps.conversation
     local stream = deps.stream
 
+    -- GAP-21: Capture send time for TTFT measurement
+    local uv = vim.uv or vim.loop
+    local send_hrtime = uv.hrtime()
+
     -- Ensure panel is open
     if not ui_state.is_open then
         deps.open_fn()
@@ -61,7 +73,7 @@ function M.send(text, ui_state, deps)
     local provider_name = conv.get_provider()
     if not pstate.preflight_done[provider_name] then
         pstate.preflight_done[provider_name] = true
-        require("ai-chat.providers").preflight(provider_name, config.providers[provider_name])
+        providers.preflight(provider_name, config.providers[provider_name])
     end
 
     -- Build and append user message
@@ -71,8 +83,8 @@ function M.send(text, ui_state, deps)
         timestamp = os.time(),
     }
     conv.append(message)
-    require("ai-chat.ui.render").render_message(ui_state.chat_bufnr, message)
-    require("ai-chat.ui.input").clear()
+    render.render_message(ui_state.chat_bufnr, message)
+    input_mod.clear()
 
     -- Build provider messages
     local provider_messages, truncated = conv.build_provider_messages(config)
@@ -102,7 +114,7 @@ function M.send(text, ui_state, deps)
     }
 
     -- Start streaming
-    local provider = require("ai-chat.providers").get(provider_name)
+    local provider = providers.get(provider_name)
     pcall(vim.api.nvim_exec_autocmds, "User", {
         pattern = "AiChatResponseStart",
         data = { provider = provider_name, model = conv.get_model() },
@@ -123,7 +135,7 @@ function M.send(text, ui_state, deps)
         chat_bufnr = ui_state.chat_bufnr,
         chat_winid = ui_state.chat_winid,
     }, {
-        on_done = function(response)
+        on_done = function(response, ttft_ms)
             deps.update_winbar_fn()
             conv.append({
                 role = "assistant",
@@ -134,26 +146,25 @@ function M.send(text, ui_state, deps)
                 timestamp = os.time(),
             })
             if response.usage then
-                local registry = require("ai-chat.models")
-                local reg_pricing = registry.get_pricing(provider_name, conv.get_model())
-                require("ai-chat.util.costs").record(provider_name, conv.get_model(), response.usage, reg_pricing)
+                local reg_pricing = models.get_pricing(provider_name, conv.get_model())
+                costs.record(provider_name, conv.get_model(), response.usage, reg_pricing)
             end
             if config.history.enabled then
-                require("ai-chat.history").save(conv.get())
+                history.save(conv.get())
             end
             pcall(vim.api.nvim_exec_autocmds, "User", {
                 pattern = "AiChatResponseDone",
-                data = { response = response, usage = response.usage },
+                data = { response = response, usage = response.usage, ttft_ms = ttft_ms },
             })
         end,
         on_error = function(err)
-            require("ai-chat.util.log").error("Provider error", err)
+            log.error("Provider error", err)
             pcall(vim.api.nvim_exec_autocmds, "User", {
                 pattern = "AiChatResponseError",
                 data = { error = err },
             })
         end,
-    })
+    }, send_hrtime)
 end
 
 return M

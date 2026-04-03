@@ -18,13 +18,46 @@ local PROVIDER_MAP = {
     ollama = nil, -- Ollama discovers models locally, not from models.dev
 }
 
+--- Per-provider default context windows (in tokens).
+--- Used as fallback when a model-specific window is not defined.
+local provider_context_windows = {
+    ollama = 4096,
+    anthropic = 200000,
+    bedrock = 200000,
+    openai_compat = 128000,
+}
+
+--- Per-model context windows (in tokens).
+--- Takes priority over the provider default. Keyed by model name.
+local model_context_windows = {
+    -- Anthropic
+    ["claude-sonnet-4-20250514"] = 200000,
+    ["claude-opus-4-20250514"] = 200000,
+    ["claude-3-5-haiku-20241022"] = 200000,
+    -- Bedrock (same models, different IDs)
+    ["anthropic.claude-sonnet-4-20250514-v1:0"] = 200000,
+    ["anthropic.claude-opus-4-20250514-v1:0"] = 200000,
+    ["anthropic.claude-3-5-haiku-20241022-v1:0"] = 200000,
+    -- OpenAI
+    ["gpt-4o"] = 128000,
+    ["gpt-4o-mini"] = 128000,
+    ["gpt-4-turbo"] = 128000,
+    -- Ollama common models
+    ["llama3.2"] = 4096,
+    ["llama3.1"] = 128000,
+    ["codellama"] = 16384,
+    ["mistral"] = 32768,
+    ["mixtral"] = 32768,
+    ["deepseek-coder"] = 16384,
+    ["phi3"] = 4096,
+}
+
 --- In-memory cache of the full models.dev data.
 ---@type table?
-local _cache = nil
-
---- Timestamp of last successful fetch (os.time()).
----@type number?
-local _last_fetch = nil
+local state = {
+    cache = nil,
+    last_fetch = nil,
+}
 
 --- Refresh interval in seconds (1 hour).
 local REFRESH_INTERVAL = 3600
@@ -101,8 +134,8 @@ function M.fetch(callback)
                 return
             end
 
-            _cache = data
-            _last_fetch = os.time()
+            state.cache = data
+            state.last_fetch = os.time()
             save_to_disk(data)
 
             if callback then
@@ -118,22 +151,22 @@ end
 ---@return table?  The full models.dev data, or nil if not yet available
 function M.ensure()
     -- Already in memory and fresh
-    if _cache and _last_fetch and (os.time() - _last_fetch) < REFRESH_INTERVAL then
-        return _cache
+    if state.cache and state.last_fetch and (os.time() - state.last_fetch) < REFRESH_INTERVAL then
+        return state.cache
     end
 
     -- Try disk cache
-    if not _cache then
-        _cache = load_from_disk()
-        if _cache then
-            _last_fetch = os.time()
+    if not state.cache then
+        state.cache = load_from_disk()
+        if state.cache then
+            state.last_fetch = os.time()
         end
     end
 
     -- Kick off background refresh (non-blocking)
     M.fetch()
 
-    return _cache
+    return state.cache
 end
 
 -- ─── Model Queries ───────────────────────────────────────────────────
@@ -228,15 +261,24 @@ function M.get_model(provider_name, model_id)
 end
 
 --- Get the context window for a model from models.dev data.
+--- Falls back to hardcoded tables if not found in registry.
 ---@param provider_name string
 ---@param model_id string
 ---@return number?  Context window in tokens, or nil if unknown
 function M.get_context_window(provider_name, model_id)
+    -- 1. Check models.dev registry
     local model = M.get_model(provider_name, model_id)
     if model and model.limit and model.limit.context then
         return model.limit.context
     end
-    return nil
+
+    -- 2. Check hardcoded per-model table
+    if model_id and model_context_windows[model_id] then
+        return model_context_windows[model_id]
+    end
+
+    -- 3. Fall back to provider default
+    return provider_context_windows[provider_name] or nil
 end
 
 --- Get pricing for a model from models.dev data.

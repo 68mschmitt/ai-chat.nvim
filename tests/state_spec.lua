@@ -1,18 +1,25 @@
 --- Tests for ai-chat.state — Persisted user state (last model/provider)
-local state = require("ai-chat.state")
 
 -- Use a temp directory for test isolation
 local test_dir = vim.fn.tempname() .. "/ai-chat-test-state"
 
+--- Reload the state module fresh (replaces _reset pattern)
+local function reload_state()
+    package.loaded["ai-chat.state"] = nil
+    return require("ai-chat.state")
+end
+
 describe("state", function()
+    local state
+
     before_each(function()
         vim.fn.mkdir(test_dir, "p")
-        state._reset()
+        state = reload_state()
         state.init(test_dir)
     end)
 
     after_each(function()
-        state._reset()
+        state = reload_state()
         vim.fn.delete(test_dir, "rf")
     end)
 
@@ -52,8 +59,8 @@ describe("state", function()
         it("survives save and reload", function()
             state.set_last_model("bedrock", "anthropic.claude-opus-4-20250514-v1:0")
 
-            -- Simulate restart: reset memory and reload from disk
-            state._reset()
+            -- Simulate restart: reload module and reinit from disk
+            state = reload_state()
             state.init(test_dir)
             state.load()
 
@@ -90,9 +97,9 @@ describe("state", function()
     end)
 
     describe("reset", function()
-        it("clears in-memory state", function()
+        it("reload clears in-memory state", function()
             state.set_last_model("anthropic", "claude-sonnet-4-20250514")
-            state._reset()
+            state = reload_state()
             assert.is_nil(state.get_last_provider())
             assert.is_nil(state.get_last_model())
         end)
