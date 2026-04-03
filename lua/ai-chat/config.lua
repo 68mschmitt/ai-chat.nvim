@@ -9,6 +9,48 @@ local M = {}
 ---@type AiChatConfig?
 local resolved = nil
 
+--- Recursively freeze a table to prevent mutations.
+--- Sets __newindex to error on any write attempt.
+---@param t table
+---@return table
+local function freeze(t)
+    if type(t) ~= "table" then
+        return t
+    end
+    -- Don't freeze tables that already have protected metatables
+    if getmetatable(t) == "frozen" then
+        return t
+    end
+    for k, v in pairs(t) do
+        if type(v) == "table" then
+            freeze(v)
+        end
+    end
+    return setmetatable(t, {
+        __newindex = function(_, k, _)
+            error(
+                ("[ai-chat] Attempt to mutate frozen config key: %s. Use config.set() instead."):format(tostring(k)),
+                2
+            )
+        end,
+        __metatable = "frozen",
+    })
+end
+
+--- Recursively unfreeze a table to allow mutations.
+---@param t table
+local function unfreeze(t)
+    if type(t) ~= "table" then
+        return
+    end
+    if getmetatable(t) == "frozen" then
+        setmetatable(t, nil)
+    end
+    for _, v in pairs(t) do
+        unfreeze(v)
+    end
+end
+
 ---@class AiChatConfig
 M.defaults = {
 
@@ -114,6 +156,7 @@ M.defaults = {
 ---@return AiChatConfig
 function M.resolve(opts)
     resolved = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts)
+    freeze(resolved)
     return resolved
 end
 
@@ -124,6 +167,23 @@ local project_allowed_keys = {
     "system_prompt",
     "default_provider",
     "default_model",
+}
+
+-- Config lifecycle categories (api-contracts.md §8)
+local LIFECYCLE = {
+    -- per-send: takes effect on next send, safe to change anytime
+    ["chat.temperature"] = "per_send",
+    ["chat.max_tokens"] = "per_send",
+    ["chat.thinking"] = "per_send",
+    ["chat.show_thinking"] = "per_send",
+    -- per-conversation: takes effect on next new conversation
+    ["chat.system_prompt"] = "per_conversation",
+    ["default_provider"] = "per_conversation",
+    ["default_model"] = "per_conversation",
+    -- immediate: takes effect now
+    ["chat.auto_scroll"] = "immediate",
+    ["ui.show_cost"] = "immediate",
+    ["ui.show_tokens"] = "immediate",
 }
 
 --- Load and apply per-project config from .ai-chat.lua in the current
@@ -148,6 +208,9 @@ function M.load_project_config()
         vim.notify("[ai-chat] Error loading .ai-chat.lua: " .. tostring(project), vim.log.levels.WARN)
         return false
     end
+
+    -- Temporarily unfreeze for mutation
+    unfreeze(resolved)
 
     -- Apply allowed top-level keys
     for _, key in ipairs(project_allowed_keys) do
@@ -174,6 +237,8 @@ function M.load_project_config()
         end
     end
 
+    freeze(resolved)
+
     vim.notify("[ai-chat] Loaded project config from .ai-chat.lua", vim.log.levels.INFO)
     return true
 end
@@ -193,15 +258,35 @@ function M.set(path, value)
     if not resolved then
         return
     end
+
+    -- Warn if changing per-send setting while streaming
+    local lifecycle = LIFECYCLE[path]
+    if lifecycle == "per_send" then
+        -- Check if streaming is active (lazy require to avoid cycles)
+        local ok_stream, stream = pcall(require, "ai-chat.stream")
+        if ok_stream and stream.is_active and stream.is_active() then
+            vim.notify(
+                string.format("[ai-chat] '%s' changed while streaming. Takes effect on next send.", path),
+                vim.log.levels.INFO
+            )
+        end
+    end
+
+    -- Temporarily unfreeze for mutation
+    unfreeze(resolved)
+
     local keys = vim.split(path, ".", { plain = true })
     local target = resolved
     for i = 1, #keys - 1 do
         target = target[keys[i]]
         if type(target) ~= "table" then
+            freeze(resolved)
             return
         end
     end
     target[keys[#keys]] = value
+
+    freeze(resolved)
 end
 
 --- Validate a resolved config.
@@ -225,16 +310,18 @@ function M.validate(config)
     end
 
     -- Provider existence
-    local valid_providers = { "ollama", "anthropic", "bedrock", "openai_compat" }
-    local found = false
-    for _, p in ipairs(valid_providers) do
-        if p == config.default_provider then
-            found = true
-            break
+    -- Lazy: avoids circular dependency during early init
+    local ok_providers, providers_mod = pcall(require, "ai-chat.providers")
+    if ok_providers and providers_mod.exists then
+        if not providers_mod.exists(config.default_provider) then
+            return false, "Unknown provider: " .. config.default_provider
         end
-    end
-    if not found then
-        return false, "Unknown provider: " .. config.default_provider
+    else
+        -- Fallback during early init when providers may not be available
+        local known = { ollama = true, anthropic = true, bedrock = true, openai_compat = true }
+        if not known[config.default_provider] then
+            return false, "Unknown provider: " .. config.default_provider
+        end
     end
 
     -- Temperature range

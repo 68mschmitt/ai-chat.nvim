@@ -172,11 +172,20 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
             set_state({ phase = "idle", generation = gen })
             spinner.stop()
 
-            -- Finalize rendering with actual provider/model for cost calculation
-            stream_render.finish(response.usage, {
-                provider = opts.provider_name,
-                model = opts.model,
-            })
+            -- GAP-08: Pre-compute cost display for render
+            local cost_display = nil
+            if response.usage then
+                local registry = require("ai-chat.models")
+                local reg_pricing = registry.get_pricing(opts.provider_name, opts.model)
+                local cost =
+                    require("ai-chat.util.costs").estimate(opts.provider_name, opts.model, response.usage, reg_pricing)
+                if cost > 0 then
+                    cost_display = string.format("$%.4f", cost)
+                end
+            end
+
+            -- Finalize rendering with pre-computed cost display
+            stream_render.finish(response.usage, cost_display)
 
             -- Notify coordinator with TTFT
             callbacks.on_done(response, ttft)

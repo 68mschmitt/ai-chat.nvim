@@ -70,27 +70,7 @@ Assert legal preconditions at the top of each function (e.g., `send` requires `p
 
 ---
 
-### GAP-06: Provider shape is never validated at load time
 
-**Spec:** api-contracts.md §2 — *"Validate at load time. Fail loudly. Do not discover a missing function when a user invokes a feature."*
-
-**Location:** `lua/ai-chat/providers/init.lua:13–25`
-
-**Finding:** `M.get()` does `pcall(require, ...)` and caches unconditionally. No check for `validate`, `preflight`, `list_models`, or `chat`. `M.validate()` and `M.preflight()` nil-check at call time and silently succeed if the function is absent.
-
-**Impact:** A provider missing `preflight` loads fine. `pipeline.lua` calls preflight → registry returns `callback(true)` → no error, no warning. A provider missing `list_models` fails only when `:AiModels` is invoked.
-
-**Fix direction:** After `require`, validate shape:
-```lua
-local required = { "validate", "preflight", "list_models", "chat" }
-for _, fn_name in ipairs(required) do
-    if type(provider[fn_name]) ~= "function" then
-        error(("[ai-chat] Provider '%s' missing required function '%s'"):format(name, fn_name))
-    end
-end
-```
-
----
 
 ### GAP-07: No provider contract test suite
 
@@ -113,43 +93,11 @@ end
 
 ## Significant — Violations that undermine stated principles
 
-### GAP-08: `render.lua` contains business logic that belongs in orchestration
 
-**Spec:** architecture.md §2, §5
 
-**Location:** `lua/ai-chat/ui/render.lua:223–229`
 
-**Finding:** The `finish()` closure in `begin_response` does config reads, model registry lookups, and cost estimation. The same pricing lookup also appears in `pipeline.lua:137–139`. A UI leaf module is doing orchestration-layer work.
 
-**Fix direction:** Compute cost in `pipeline.on_done` and pass it to `render.finish()` as a pre-computed value. Remove config/models/costs requires from render.lua.
 
----
-
-### GAP-09: `config.get()` returns mutable references
-
-**Spec:** architecture.md §3 — *"Never hand out mutable references to owned state."*
-
-**Location:** `lua/ai-chat/config.lua:184–186`
-
-**Finding:** Returns the raw `resolved` table. Any caller that does `config.get().chat.thinking = true` silently mutates global config. `conversation.get()` correctly deepcopies; `config.get()` does not. `init.lua:167` passes the raw reference into `pipeline.send()`.
-
-**Fix direction:** Either `return vim.deepcopy(resolved)` (the spec accepts this cost for config — see performance.md accepted tradeoffs table) or return a frozen/read-only proxy. The performance.md tradeoff table explicitly *rejects* deep copying config on every access — so the alternative is a read-only wrapper or ensuring all mutation goes through `config.set()`.
-
----
-
-### GAP-10: Two independent hardcoded provider lists
-
-**Spec:** api-contracts.md §5 — *"Derive registries from registrations, not from hardcoded lists."*
-
-**Locations:**
-- `lua/ai-chat/providers/init.lua:42–44` — `M.list()` returns `{ "ollama", "anthropic", "bedrock", "openai_compat" }`
-- `lua/ai-chat/config.lua:228–238` — `valid_providers` array in `validate()`
-
-**Finding:** Two lists that must be kept in sync manually. Adding a provider requires updating both. Neither is derived from loaded modules.
-
-**Fix direction:** `providers.list()` returns the keys of the loaded-providers cache. `config.validate()` calls `providers.list()` or `providers.exists()` instead of maintaining its own list.
-
----
 
 ### GAP-11: Context windows live in two independent places
 
@@ -165,25 +113,7 @@ end
 
 ---
 
-### GAP-12: Buffer modifiable toggle is not pcall-protected
 
-**Spec:** code-conventions.md §5 — *"Wrap buffer writes in a helper that guarantees restoration via pcall."*
-
-**Location:** `lua/ai-chat/ui/render.lua:29–79` (render_message), `render.lua:95–98` (clear)
-
-**Finding:** Both functions set `modifiable = true`, perform buffer writes, then set `modifiable = false` — with no pcall. If the buffer is deleted between validity check and write, the flag is never reset.
-
-**Fix direction:** Extract a helper:
-```lua
-local function with_modifiable(bufnr, fn)
-    vim.bo[bufnr].modifiable = true
-    local ok, err = pcall(fn)
-    vim.bo[bufnr].modifiable = false
-    if not ok then error(err) end
-end
-```
-
----
 
 ### GAP-13: Tests call underscore-prefixed internal functions
 
@@ -272,18 +202,7 @@ end
 
 ---
 
-### GAP-19: Vague error messages from providers
 
-**Spec:** code-conventions.md §8 — *"Include the specific failure and a concrete next step."*
-
-**Locations:**
-- `bedrock.lua:313–316` — auth errors pass raw "Forbidden" with no next step
-- `anthropic.lua:282` — passes raw API string, no "check ANTHROPIC_API_KEY" guidance
-- `openai_compat.lua:250` — same pattern
-
-**Positive example:** `ollama.lua:156–159` — *"Is Ollama running at {host}? Start it with `ollama serve`."* All providers should follow this model.
-
----
 
 ### GAP-20: Provider-specific logic outside `providers/`
 
@@ -305,35 +224,11 @@ Also: `health.lua` has extensive provider-name branching (lines 52–111), argua
 
 ---
 
-### GAP-22: `config.set()` has no lifecycle categories
 
-**Spec:** api-contracts.md §8
 
-**Location:** `lua/ai-chat/config.lua:192–205`
 
-**Finding:** `set()` is a raw path-value setter. No distinction between per-send, per-conversation, and immediate settings. No warning when changing `chat.thinking` while a stream is active (`init.lua:328`).
 
----
 
-### GAP-23: Config deep-copied on every streaming chunk
-
-**Spec:** performance.md §4 — *"Avoid adding O(n) operations that run on every chunk."*
-
-**Location:** `lua/ai-chat/ui/render.lua:182–184`
-
-**Finding:** `require("ai-chat.config").get()` is called inside the `append` closure (per-chunk auto-scroll check). If `config.get()` does a deepcopy (as GAP-09 recommends), this becomes 200 deep copies per response. The config doesn't change during streaming — capture it once in `begin_response`.
-
----
-
-### GAP-24: `handle_*` / `process_*` naming in bedrock
-
-**Spec:** code-conventions.md §2 — *"Name functions for what they return or do, never for when they are called."*
-
-**Location:** `lua/ai-chat/providers/bedrock.lua:345,385`
-
-**Finding:** `_process_stream_buffer` and `_handle_anthropic_event` — named for trigger, not effect. Better: `decode_bedrock_frames`, `dispatch_event`.
-
----
 
 ## Resolved
 
@@ -346,9 +241,18 @@ Also: `health.lua` has extensive provider-name branching (lines 52–111), argua
 | GAP-03 | 2026-04-02 | Phase 1 commit — Generation counter + state machine phase transitions silence post-cancel callbacks. Verified by stream_guard_spec.lua cancel test. |
 | GAP-04 | 2026-04-02 | Phase 1 commit — stream.lua rewritten with phase-based state machine (idle/streaming/retrying), transition table, phase-specific state records. |
 | GAP-05 | 2026-04-02 | Phase 1 commit — store.lua now maintains index.json; list() reads only the index; write() updates index atomically; _rebuild_index() for recovery. |
+| GAP-06 | 2026-04-02 | Phase 2 commit — providers/init.lua validates shape (validate, preflight, list_models, chat) at load time. |
 | GAP-07 | 2026-04-02 | Phase 1 commit — tests/providers/contract_spec.lua with 24 parameterized tests across all 4 providers. |
+| GAP-08 | 2026-04-02 | Phase 2 commit — cost computation moved from render.lua to stream.lua on_done; render.finish() receives pre-computed cost_display string. |
+| GAP-09 | 2026-04-02 | Phase 2 commit — config.get() returns freeze-on-resolve table; __newindex errors on mutation; config.set() unfreezes/refreezes. |
+| GAP-10 | 2026-04-02 | Phase 2 commit — providers.list() returns loaded provider keys; config.validate() uses providers.exists() with fallback. |
 | GAP-11 | 2026-04-02 | Phase 1 commit — models.lua is now authoritative source for context windows; conversation.lua accepts optional registry_lookup parameter. |
+| GAP-12 | 2026-04-02 | Phase 2 commit — with_modifiable(bufnr, fn) helper wraps all buffer writes with pcall protection. |
 | GAP-15 | 2026-04-02 | Phase 1 commit — docs/events.md documents all 7 autocmd events with payload shapes. |
 | GAP-18 | 2026-04-02 | Phase 1 commit — spinner.lua, log.lua, models.lua consolidated mutable locals into state tables. |
+| GAP-19 | 2026-04-02 | Phase 2 commit — anthropic, bedrock, openai_compat providers now include actionable next steps in error messages. |
 | GAP-20 | 2026-04-02 | Phase 1 commit — removed `if provider == "ollama"` from costs.lua; documented health.lua deviation. |
 | GAP-21 | 2026-04-02 | Phase 1 commit — TTFT instrumentation with vim.uv.hrtime() in pipeline.lua → stream.lua on_chunk; logged and included in AiChatResponseDone. |
+| GAP-22 | 2026-04-02 | Phase 2 commit — LIFECYCLE table in config.lua; config.set() warns when changing per_send settings while streaming. |
+| GAP-23 | 2026-04-02 | Phase 2 commit — config captured once in begin_response(), removed per-chunk config.get() calls. |
+| GAP-24 | 2026-04-02 | Phase 2 commit — bedrock.lua: _process_stream_buffer → _decode_bedrock_frames, _handle_anthropic_event → _dispatch_event. |

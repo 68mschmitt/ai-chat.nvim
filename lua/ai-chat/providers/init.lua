@@ -20,6 +20,14 @@ function M.get(name)
         error("[ai-chat] Failed to load provider '" .. name .. "': " .. provider)
     end
 
+    -- Validate provider shape (api-contracts.md §2)
+    local required_fns = { "validate", "preflight", "list_models", "chat" }
+    for _, fn_name in ipairs(required_fns) do
+        if type(provider[fn_name]) ~= "function" then
+            error(("[ai-chat] Provider '%s' missing required function '%s'"):format(name, fn_name))
+        end
+    end
+
     providers[name] = provider
     return provider
 end
@@ -40,7 +48,12 @@ end
 --- List all available provider names.
 ---@return string[]
 function M.list()
-    return { "ollama", "anthropic", "bedrock", "openai_compat" }
+    -- Ensure all built-in providers are loaded
+    local builtins = { "ollama", "anthropic", "bedrock", "openai_compat" }
+    for _, name in ipairs(builtins) do
+        pcall(M.get, name)
+    end
+    return vim.tbl_keys(providers)
 end
 
 --- Validate a provider's configuration.

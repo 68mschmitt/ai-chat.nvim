@@ -10,6 +10,19 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("ai-chat-render")
 local thinking = require("ai-chat.ui.thinking")
 
+--- Execute a function with the buffer set to modifiable.
+--- Guarantees modifiable is restored to false even on error.
+---@param bufnr number
+---@param fn function
+local function with_modifiable(bufnr, fn)
+    vim.bo[bufnr].modifiable = true
+    local ok, err = pcall(fn)
+    vim.bo[bufnr].modifiable = false
+    if not ok then
+        error(err, 2)
+    end
+end
+
 --- Check if the buffer is "empty" (single empty line from initialization).
 ---@param bufnr number
 ---@return boolean
@@ -26,57 +39,55 @@ end
 ---@param bufnr number  Chat buffer
 ---@param message table  { role, content, context?, usage?, model? }
 function M.render_message(bufnr, message)
-    vim.bo[bufnr].modifiable = true
+    with_modifiable(bufnr, function()
+        local start_line
 
-    local start_line
+        if buf_is_empty(bufnr) then
+            -- Replace the initial empty line
+            start_line = 0
+        else
+            -- Append after existing content with a blank separator
+            local lc = vim.api.nvim_buf_line_count(bufnr)
+            vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
+            start_line = lc + 1
+        end
 
-    if buf_is_empty(bufnr) then
-        -- Replace the initial empty line
-        start_line = 0
-    else
-        -- Append after existing content with a blank separator
-        local lc = vim.api.nvim_buf_line_count(bufnr)
-        vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
-        start_line = lc + 1
-    end
+        -- Message header
+        local header = message.role == "user" and "## You" or "## Assistant"
+        vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, { header })
 
-    -- Message header
-    local header = message.role == "user" and "## You" or "## Assistant"
-    vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, { header })
+        -- Add metadata as virtual text on the header line
+        local meta_parts = {}
+        if message.usage then
+            table.insert(
+                meta_parts,
+                string.format("%d->%d", message.usage.input_tokens or 0, message.usage.output_tokens or 0)
+            )
+        end
+        if #meta_parts > 0 then
+            vim.api.nvim_buf_set_extmark(bufnr, ns, start_line, 0, {
+                virt_text = { { " [" .. table.concat(meta_parts, " | ") .. "]", "AiChatMeta" } },
+                virt_text_pos = "eol",
+            })
+        end
 
-    -- Add metadata as virtual text on the header line
-    local meta_parts = {}
-    if message.usage then
-        table.insert(
-            meta_parts,
-            string.format("%d->%d", message.usage.input_tokens or 0, message.usage.output_tokens or 0)
-        )
-    end
-    if #meta_parts > 0 then
+        -- Apply header highlighting
+        local hl_group = message.role == "user" and "AiChatUser" or "AiChatAssistant"
         vim.api.nvim_buf_set_extmark(bufnr, ns, start_line, 0, {
-            virt_text = { { " [" .. table.concat(meta_parts, " | ") .. "]", "AiChatMeta" } },
-            virt_text_pos = "eol",
+            end_col = #header,
+            hl_group = hl_group,
         })
-    end
 
-    -- Apply header highlighting
-    local hl_group = message.role == "user" and "AiChatUser" or "AiChatAssistant"
-    vim.api.nvim_buf_set_extmark(bufnr, ns, start_line, 0, {
-        end_col = #header,
-        hl_group = hl_group,
-    })
+        start_line = start_line + 1
 
-    start_line = start_line + 1
+        -- Message content
+        local content_lines = vim.split(message.content, "\n")
+        vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, content_lines)
 
-    -- Message content
-    local content_lines = vim.split(message.content, "\n")
-    vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, content_lines)
-
-    -- Apply syntax highlighting to code blocks and thinking blocks
-    thinking.process(bufnr, ns, start_line, start_line + #content_lines)
-    M._highlight_code_blocks(bufnr, start_line, start_line + #content_lines)
-
-    vim.bo[bufnr].modifiable = false
+        -- Apply syntax highlighting to code blocks and thinking blocks
+        thinking.process(bufnr, ns, start_line, start_line + #content_lines)
+        M._highlight_code_blocks(bufnr, start_line, start_line + #content_lines)
+    end)
 end
 
 --- Render an entire conversation into a fresh chat buffer.
@@ -92,40 +103,44 @@ end
 --- Clear the chat buffer.
 ---@param bufnr number
 function M.clear(bufnr)
-    vim.bo[bufnr].modifiable = true
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "" })
-    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-    vim.bo[bufnr].modifiable = false
+    with_modifiable(bufnr, function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "" })
+        vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    end)
 end
 
 --- Begin a streaming response. Returns an object with append/finish/error methods.
 ---@param bufnr number
----@return { append: fun(text: string), finish: fun(usage: AiChatUsage), error: fun(err: AiChatError) }
+---@return { append: fun(text: string), finish: fun(usage: AiChatUsage, cost_display: string?), error: fun(err: AiChatError) }
 function M.begin_response(bufnr)
-    vim.bo[bufnr].modifiable = true
+    -- Capture config once for the lifetime of this streaming response (GAP-23)
+    local chat_config = require("ai-chat.config").get().chat
 
+    -- Declare these outside with_modifiable so closures can access them
     local header_line
+    local write_line
 
-    if buf_is_empty(bufnr) then
-        header_line = 0
-    else
-        local lc = vim.api.nvim_buf_line_count(bufnr)
-        -- Add blank separator
-        vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
-        header_line = lc + 1
-    end
+    with_modifiable(bufnr, function()
+        if buf_is_empty(bufnr) then
+            header_line = 0
+        else
+            local lc = vim.api.nvim_buf_line_count(bufnr)
+            -- Add blank separator
+            vim.api.nvim_buf_set_lines(bufnr, lc, lc, false, { "" })
+            header_line = lc + 1
+        end
 
-    -- Header
-    vim.api.nvim_buf_set_lines(bufnr, header_line, header_line, false, { "## Assistant" })
-    vim.api.nvim_buf_set_extmark(bufnr, ns, header_line, 0, {
-        end_col = #"## Assistant",
-        hl_group = "AiChatAssistant",
-    })
+        -- Header
+        vim.api.nvim_buf_set_lines(bufnr, header_line, header_line, false, { "## Assistant" })
+        vim.api.nvim_buf_set_extmark(bufnr, ns, header_line, 0, {
+            end_col = #"## Assistant",
+            hl_group = "AiChatAssistant",
+        })
 
-    -- Initialize the first content line
-    local write_line = header_line + 1
-    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
-    vim.bo[bufnr].modifiable = false
+        -- Initialize the first content line
+        write_line = header_line + 1
+        vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
+    end)
 
     -- Line buffer for accumulating partial lines during streaming
     local line_buffer = ""
@@ -142,47 +157,42 @@ function M.begin_response(bufnr)
                     return
                 end
 
-                vim.bo[bufnr].modifiable = true
+                with_modifiable(bufnr, function()
+                    line_buffer = line_buffer .. text
+                    local lines = vim.split(line_buffer, "\n", { plain = true })
 
-                line_buffer = line_buffer .. text
-                local lines = vim.split(line_buffer, "\n", { plain = true })
+                    -- Process all complete lines (all except the last fragment)
+                    for i = 1, #lines - 1 do
+                        local line_text = lines[i]
+                        -- Replace the current write_line with the complete line
+                        vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_text })
 
-                -- Process all complete lines (all except the last fragment)
-                for i = 1, #lines - 1 do
-                    local line_text = lines[i]
-                    -- Replace the current write_line with the complete line
-                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_text })
+                        -- Track thinking state and apply real-time dimming
+                        if thinking.is_open_tag(line_text) then
+                            in_thinking = true
+                        end
 
-                    -- Track thinking state and apply real-time dimming
-                    if thinking.is_open_tag(line_text) then
-                        in_thinking = true
+                        if in_thinking then
+                            thinking.dim_line(bufnr, ns, write_line)
+                        end
+
+                        if thinking.is_close_tag(line_text) then
+                            in_thinking = false
+                        end
+
+                        write_line = write_line + 1
+                        -- Insert a fresh empty line for the next content
+                        vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
                     end
 
-                    if in_thinking then
-                        thinking.dim_line(bufnr, ns, write_line)
-                    end
-
-                    if thinking.is_close_tag(line_text) then
-                        in_thinking = false
-                    end
-
-                    write_line = write_line + 1
-                    -- Insert a fresh empty line for the next content
-                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line, false, { "" })
-                end
-
-                -- The last element is the incomplete trailing fragment
-                line_buffer = lines[#lines]
-                -- Update the current line with the fragment (overwrite in place)
-                vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
-
-                vim.bo[bufnr].modifiable = false
+                    -- The last element is the incomplete trailing fragment
+                    line_buffer = lines[#lines]
+                    -- Update the current line with the fragment (overwrite in place)
+                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
+                end)
 
                 -- Auto-scroll only if enabled and user hasn't scrolled up
-                local ok_cfg, chat_config = pcall(function()
-                    return require("ai-chat.config").get().chat
-                end)
-                if ok_cfg and chat_config and chat_config.auto_scroll then
+                if chat_config and chat_config.auto_scroll then
                     for _, win in ipairs(vim.api.nvim_list_wins()) do
                         if vim.api.nvim_win_get_buf(win) == bufnr then
                             local last = vim.api.nvim_buf_line_count(bufnr)
@@ -201,38 +211,32 @@ function M.begin_response(bufnr)
 
         --- Finalize the response with usage metadata.
         ---@param usage AiChatUsage
-        ---@param opts? { provider?: string, model?: string }
-        finish = function(usage, opts)
+        ---@param cost_display string?  Pre-computed cost display string (GAP-08)
+        finish = function(usage, cost_display)
             vim.schedule(function()
                 if not vim.api.nvim_buf_is_valid(bufnr) then
                     return
                 end
-                opts = opts or {}
 
-                -- Flush any remaining content in line_buffer
-                if line_buffer ~= "" then
-                    vim.bo[bufnr].modifiable = true
-                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
-                    line_buffer = ""
-                    vim.bo[bufnr].modifiable = false
-                end
-
-                -- Add usage metadata to the header line
-                if usage then
-                    local meta = string.format("%d->%d", usage.input_tokens, usage.output_tokens)
-                    local provider = opts.provider or require("ai-chat.config").get().default_provider
-                    local model = opts.model or require("ai-chat.config").get().default_model
-                    local registry = require("ai-chat.models")
-                    local reg_pricing = registry.get_pricing(provider, model)
-                    local cost = require("ai-chat.util.costs").estimate(provider, model, usage, reg_pricing)
-                    if cost > 0 then
-                        meta = meta .. string.format(" | $%.4f", cost)
+                with_modifiable(bufnr, function()
+                    -- Flush any remaining content in line_buffer
+                    if line_buffer ~= "" then
+                        vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, { line_buffer })
+                        line_buffer = ""
                     end
-                    vim.api.nvim_buf_set_extmark(bufnr, ns, header_line, 0, {
-                        virt_text = { { " [" .. meta .. "]", "AiChatMeta" } },
-                        virt_text_pos = "eol",
-                    })
-                end
+
+                    -- Add usage metadata to the header line
+                    if usage then
+                        local meta = string.format("%d->%d", usage.input_tokens, usage.output_tokens)
+                        if cost_display then
+                            meta = meta .. " | " .. cost_display
+                        end
+                        vim.api.nvim_buf_set_extmark(bufnr, ns, header_line, 0, {
+                            virt_text = { { " [" .. meta .. "]", "AiChatMeta" } },
+                            virt_text_pos = "eol",
+                        })
+                    end
+                end)
 
                 -- Process thinking blocks (fold/collapse) and code blocks (highlight)
                 local content_start = header_line + 1
@@ -250,29 +254,27 @@ function M.begin_response(bufnr)
                     return
                 end
 
-                vim.bo[bufnr].modifiable = true
+                with_modifiable(bufnr, function()
+                    local error_lines = {
+                        string.rep("-", 50),
+                        "  ERROR: " .. (err.message or "Unknown error"),
+                    }
 
-                local error_lines = {
-                    string.rep("-", 50),
-                    "  ERROR: " .. (err.message or "Unknown error"),
-                }
+                    if require("ai-chat.errors").is_retryable(err) then
+                        table.insert(error_lines, "  (retryable)")
+                    end
 
-                if require("ai-chat.errors").is_retryable(err) then
-                    table.insert(error_lines, "  (retryable)")
-                end
+                    table.insert(error_lines, string.rep("-", 50))
 
-                table.insert(error_lines, string.rep("-", 50))
+                    vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, error_lines)
 
-                vim.api.nvim_buf_set_lines(bufnr, write_line, write_line + 1, false, error_lines)
-
-                -- Highlight error lines
-                for i = 0, #error_lines - 1 do
-                    pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, write_line + i, 0, {
-                        line_hl_group = "AiChatError",
-                    })
-                end
-
-                vim.bo[bufnr].modifiable = false
+                    -- Highlight error lines
+                    for i = 0, #error_lines - 1 do
+                        pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, write_line + i, 0, {
+                            line_hl_group = "AiChatError",
+                        })
+                    end
+                end)
             end)
         end,
     }

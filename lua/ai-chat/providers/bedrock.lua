@@ -220,7 +220,9 @@ function M.chat(messages, opts, callbacks)
                     vim.schedule(function()
                         callbacks.on_error({
                             code = "network",
-                            message = "Bedrock connection failed: " .. tostring(err),
+                            message = "Bedrock connection failed: "
+                                .. tostring(err)
+                                .. " Check your network connection and AWS region configuration.",
                         })
                     end)
                 end
@@ -237,7 +239,7 @@ function M.chat(messages, opts, callbacks)
             -- Bedrock InvokeModelWithResponseStream wraps each Anthropic event
             -- in a frame: event{"bytes":"<base64-encoded JSON>"}
             -- Exceptions arrive as: exception{"message":"error text"}
-            M._process_stream_buffer(
+            M._decode_bedrock_frames(
                 stream_buffer,
                 callbacks,
                 function(text)
@@ -303,6 +305,7 @@ function M.chat(messages, opts, callbacks)
                         or err_msg:match("[Ff]orbidden")
                     then
                         err_code = "auth"
+                        err_msg = "Access denied. Check that AWS_BEARER_TOKEN_BEDROCK is set and not expired."
                     elseif err_msg:match("[Tt]hrottle") or err_msg:match("[Rr]ate") then
                         err_code = "rate_limit"
                     elseif err_msg:match("[Mm]odel") and err_msg:match("[Nn]ot [Ff]ound") then
@@ -342,7 +345,7 @@ end
 ---@param accumulate fun(text: string)
 ---@param usage table
 ---@param mark_errored fun()
-function M._process_stream_buffer(buffer, callbacks, accumulate, usage, mark_errored)
+function M._decode_bedrock_frames(buffer, callbacks, accumulate, usage, mark_errored)
     -- Extract event frames: event{"bytes":"base64data..."}
     for event_json in buffer:gmatch("event(%b{})") do
         local ok, frame = pcall(vim.json.decode, event_json)
@@ -352,7 +355,7 @@ function M._process_stream_buffer(buffer, callbacks, accumulate, usage, mark_err
             if decode_ok and decoded then
                 local json_ok, event = pcall(vim.json.decode, decoded)
                 if json_ok and event then
-                    M._handle_anthropic_event(event, callbacks, accumulate, usage, mark_errored)
+                    M._dispatch_event(event, callbacks, accumulate, usage, mark_errored)
                 end
             end
         end
@@ -382,7 +385,7 @@ end
 ---@param accumulate fun(text: string)
 ---@param usage table
 ---@param mark_errored fun()
-function M._handle_anthropic_event(event, callbacks, accumulate, usage, mark_errored)
+function M._dispatch_event(event, callbacks, accumulate, usage, mark_errored)
     local event_type = event.type
 
     if event_type == "content_block_delta" then
