@@ -4,6 +4,12 @@
 **Phase:** 1 (parallel, no dependencies)
 **Gaps:** GAP-07, GAP-15
 
+> **Status:** ✅ Complete — committed in Phase 1 (`765be68`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-07: Created `tests/providers/contract_spec.lua` — 24 parameterized tests (4 providers × 6 scenarios)
+> - GAP-15: Created `docs/events.md` documenting all 7 autocmd events with payload shapes and stability guarantees
+
 ---
 
 ## bell-labs Prompt

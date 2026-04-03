@@ -4,6 +4,13 @@
 **Phase:** 2 (after Phase 1 merges)
 **Gaps:** GAP-08, GAP-12, GAP-23
 
+> **Status:** ✅ Complete — committed in Phase 2 (`904fe24`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-08: Cost computation moved from `render.lua` (UI leaf) to `stream.lua` (orchestration); `render.finish()` receives pre-computed `cost_display` string
+> - GAP-12: Extracted `with_modifiable(bufnr, fn)` helper — pcall-protected buffer writes across all render functions
+> - GAP-23: Config captured once in `begin_response()`, removed per-chunk `config.get()` calls and unnecessary pcall wrapper
+
 ---
 
 ## bell-labs Prompt

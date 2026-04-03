@@ -4,6 +4,18 @@
 **Phase:** 2 (after Phase 1 merges)
 **Gaps:** GAP-06, GAP-09, GAP-10, GAP-19, GAP-22, GAP-24
 
+> **Status:** ✅ Complete — committed in Phase 2 (`904fe24`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-06: Provider shape validation in `providers/init.lua` — checks validate/preflight/list_models/chat at load
+> - GAP-09: Freeze-on-resolve config immutability — `__newindex = error` metatables set after `resolve()`; `set()` unfreezes/refreezes
+> - GAP-10: `providers.list()` returns loaded provider keys; `config.validate()` uses `providers.exists()` with early-init fallback
+> - GAP-19: Actionable error messages in anthropic, bedrock, openai_compat (follow ollama's pattern)
+> - GAP-22: `LIFECYCLE` table in config.lua; `config.set()` warns when changing per_send settings while streaming
+> - GAP-24: Renamed `_process_stream_buffer` → `_decode_bedrock_frames`, `_handle_anthropic_event` → `_dispatch_event`
+>
+> **Expert consultation:** Joshua Bloch recommended freeze-on-resolve (zero read cost, loud mutation errors). Ken Thompson recommended convention + test. Freeze-on-resolve adopted — near-zero cost with structural protection.
+
 ---
 
 ## bell-labs Prompt

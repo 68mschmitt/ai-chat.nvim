@@ -4,6 +4,15 @@
 **Phase:** 1 (parallel, no dependencies)
 **Gaps:** GAP-03, GAP-04, GAP-21
 
+> **Status:** ✅ Complete — committed in Phase 1 (`765be68`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-04: Replaced scattered boolean flags with phase-based state machine (TRANSITIONS table, `transition()` function, phase-specific state records)
+> - GAP-03: Verified — generation counter + phase transitions fully silence post-cancel callbacks
+> - GAP-21: Added TTFT instrumentation via `vim.uv.hrtime()` in pipeline.lua → stream.lua; logged and included in AiChatResponseDone autocmd
+>
+> **Expert consultation:** Rich Hickey + Dijkstra both recommended phase-specific state records (replace entire state table on transition). Hickey favored transition table as data; Dijkstra favored guard assertions. Hybrid approach adopted: transition table for legality checks, logic stays in functions.
+
 ---
 
 ## bell-labs Prompt

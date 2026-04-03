@@ -4,6 +4,13 @@
 **Phase:** 1 (parallel, no dependencies)
 **Gaps:** GAP-11, GAP-18, GAP-20
 
+> **Status:** ✅ Complete — committed in Phase 1 (`765be68`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-11: `models.lua` now authoritative for context windows; `conversation.lua` accepts optional `registry_lookup` parameter
+> - GAP-18: State consolidation in `spinner.lua`, `log.lua`, `models.lua` (scattered locals → `local state = {}`)
+> - GAP-20: Removed `if provider == "ollama"` from `costs.lua`; documented health.lua deviation
+
 ---
 
 ## bell-labs Prompt

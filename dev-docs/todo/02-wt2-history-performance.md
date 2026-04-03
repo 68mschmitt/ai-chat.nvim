@@ -4,6 +4,14 @@
 **Phase:** 1 (parallel, no dependencies)
 **Gaps:** GAP-05
 
+> **Status:** ✅ Complete — committed in Phase 1 (`765be68`, 2026-04-02)
+>
+> **What was done:**
+> - GAP-05: Replaced O(N) full-scan `list()` with `index.json` maintained alongside conversation files
+> - Atomic index writes (temp file + rename)
+> - Auto-rebuild on corruption/missing index via `_rebuild_index()`
+> - State consolidation (GAP-18 partial) for store.lua
+
 ---
 
 ## bell-labs Prompt
