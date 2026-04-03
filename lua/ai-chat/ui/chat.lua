@@ -3,6 +3,11 @@
 
 local M = {}
 
+local config = require("ai-chat.config")
+local costs = require("ai-chat.util.costs")
+local render = require("ai-chat.ui.render")
+local input = require("ai-chat.ui.input")
+
 local state = {
     bufnr = nil,
     winid = nil,
@@ -94,11 +99,9 @@ function M.update_winbar(winid, conversation)
         table.insert(parts, conversation.provider .. "/" .. conversation.model)
 
         -- Show thinking mode status
-        local ok, config = pcall(function()
-            return require("ai-chat.config").get()
-        end)
-        if ok and config and config.chat and config.chat.thinking then
-            local budget = (config.providers.anthropic or {}).thinking_budget or 10000
+        local cfg = config.get()
+        if cfg and cfg.chat and cfg.chat.thinking then
+            local budget = (cfg.providers.anthropic or {}).thinking_budget or 10000
             table.insert(parts, string.format("thinking: %dK", math.floor(budget / 1000)))
         end
 
@@ -106,7 +109,7 @@ function M.update_winbar(winid, conversation)
     end
 
     -- Add session cost if applicable
-    local cost = require("ai-chat.util.costs").get_session_cost()
+    local cost = costs.get_session_cost()
     if cost > 0 then
         table.insert(parts, string.format("$%.2f", cost))
     end
@@ -118,7 +121,7 @@ end
 --- Reads bindings from user config; set any key to `false` to disable.
 ---@param bufnr number
 function M._setup_keymaps(bufnr)
-    local keys = require("ai-chat.config").get().keys
+    local keys = config.get().keys
 
     local opts = function(desc)
         return { buffer = bufnr, nowait = true, desc = "[ai-chat] " .. desc }
@@ -131,9 +134,11 @@ function M._setup_keymaps(bufnr)
     end
 
     map(keys.close, function()
+        -- Lazy: breaks init → ui → chat → init cycle
         require("ai-chat").close()
     end, "Close panel")
     map(keys.cancel, function()
+        -- Lazy: breaks init → ui → chat → init cycle
         require("ai-chat").cancel()
     end, "Cancel generation")
     map(keys.next_message, function()
@@ -155,12 +160,13 @@ function M._setup_keymaps(bufnr)
         M._open_code_block()
     end, "Open code block in split")
     map(keys.show_help, function()
+        -- Lazy: breaks init → ui → chat → init cycle
         require("ai-chat").show_keys()
     end, "Show help")
 
     -- Always map `i` to focus input (not configurable — fundamental buffer behavior)
     vim.keymap.set("n", "i", function()
-        require("ai-chat.ui.input").focus()
+        input.focus()
     end, opts("Focus input"))
 end
 
@@ -253,7 +259,7 @@ function M._yank_code_block()
     if not state.bufnr or not state.winid then
         return
     end
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
+    local block = render.get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         vim.fn.setreg("+", block.content)
         vim.fn.setreg('"', block.content)
@@ -268,7 +274,7 @@ function M._open_code_block()
     if not state.bufnr or not state.winid then
         return
     end
-    local block = require("ai-chat.ui.render").get_code_block_at_cursor(state.bufnr, state.winid)
+    local block = render.get_code_block_at_cursor(state.bufnr, state.winid)
     if block then
         local new_buf = vim.api.nvim_create_buf(false, true)
         local lines = vim.split(block.content, "\n")

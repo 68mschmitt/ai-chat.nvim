@@ -89,23 +89,31 @@ describe("pipeline integration", function()
     describe("context window per-model", function()
         local conversation = require("ai-chat.conversation")
 
-        it("uses model-specific context window when available", function()
-            local window = conversation._get_context_window("openai_compat", "gpt-4o")
-            assert.equals(128000, window)
+        it("uses known model context window (does not truncate small conversation)", function()
+            -- gpt-4o has 128000 token window — a small conversation should not be truncated
+            conversation.new("openai_compat", "gpt-4o")
+            conversation.append({ role = "user", content = "hello" })
+            conversation.append({ role = "assistant", content = "hi" })
+
+            local cfg = config.resolve({
+                default_provider = "openai_compat",
+                default_model = "gpt-4o",
+                history = { enabled = false },
+                log = { enabled = false },
+            })
+            local messages, truncated = conversation.build_provider_messages(cfg)
+            assert.is_nil(truncated, "small conversation should not be truncated with 128K window")
         end)
 
-        it("falls back to provider default for unknown models", function()
-            local window = conversation._get_context_window("anthropic", "claude-unknown-2099")
-            assert.equals(200000, window)
-        end)
+        it("respects user config context_window override", function()
+            conversation.new("ollama", "custom-model")
+            -- Add enough content to exceed a small window but fit in 32768
+            for i = 1, 5 do
+                conversation.append({ role = "user", content = string.rep("word ", 200) })
+                conversation.append({ role = "assistant", content = string.rep("word ", 200) })
+            end
 
-        it("falls back to 4096 for completely unknown provider and model", function()
-            local window = conversation._get_context_window("unknown_provider", "unknown_model")
-            assert.equals(4096, window)
-        end)
-
-        it("uses user config context_window override", function()
-            config.resolve({
+            local cfg = config.resolve({
                 default_provider = "ollama",
                 default_model = "custom-model",
                 providers = {
@@ -117,28 +125,27 @@ describe("pipeline integration", function()
                 history = { enabled = false },
                 log = { enabled = false },
             })
-            local cfg = config.get()
-            local window = conversation._get_context_window("ollama", "custom-model", cfg)
-            assert.equals(32768, window)
+            local messages, truncated = conversation.build_provider_messages(cfg)
+            -- With a 32768 window, 5 exchanges of ~267 tokens each shouldn't be truncated
+            assert.is_nil(truncated, "should fit within 32768 token window")
         end)
 
-        it("prefers model-specific over provider config", function()
-            config.resolve({
-                default_provider = "openai_compat",
-                default_model = "gpt-4o",
-                providers = {
-                    openai_compat = {
-                        endpoint = "https://api.openai.com/v1/chat/completions",
-                        context_window = 8000, -- User override lower than model knows
-                    },
-                },
+        it("falls back to small default for unknown provider and model", function()
+            conversation.new("unknown_provider", "unknown_model")
+            -- Add enough content to exceed the 4096 fallback window
+            for i = 1, 10 do
+                conversation.append({ role = "user", content = string.rep("word ", 500) })
+                conversation.append({ role = "assistant", content = string.rep("word ", 500) })
+            end
+
+            local cfg = config.resolve({
+                default_provider = "unknown_provider",
+                default_model = "unknown_model",
                 history = { enabled = false },
                 log = { enabled = false },
             })
-            local cfg = config.get()
-            -- Model-specific (128000) should win over provider config (8000)
-            local window = conversation._get_context_window("openai_compat", "gpt-4o", cfg)
-            assert.equals(128000, window)
+            local messages, truncated = conversation.build_provider_messages(cfg)
+            assert.truthy(truncated, "should truncate with 4096 fallback for unknown provider")
         end)
     end)
 

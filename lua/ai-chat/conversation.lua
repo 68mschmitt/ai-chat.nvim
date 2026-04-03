@@ -4,6 +4,9 @@
 
 local M = {}
 
+local log = require("ai-chat.util.log")
+local tokens = require("ai-chat.util.tokens")
+
 ---@class AiChatConversation
 ---@field id string
 ---@field messages AiChatMessage[]
@@ -105,7 +108,6 @@ end
 --- Uses lenient validation: invalid messages are skipped with warnings, valid ones are kept.
 ---@param conversation AiChatConversation
 function M.restore(conversation)
-    local log = require("ai-chat.util.log")
     local raw_messages = conversation.messages or {}
     local valid_messages = {}
     local skipped = 0
@@ -267,8 +269,6 @@ end
 ---@param max_tokens number  Maximum token budget
 ---@return number?  Number of messages dropped, or nil if no truncation
 function M._truncate_to_budget(messages, max_tokens)
-    local tokens = require("ai-chat.util.tokens")
-
     -- Estimate total tokens
     local total = 0
     for _, msg in ipairs(messages) do

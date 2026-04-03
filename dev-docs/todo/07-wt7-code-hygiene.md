@@ -1,24 +1,24 @@
 # WT7: Code Hygiene
 
-**Branch:** `gap/code-hygiene`
-**Phase:** 3 (after all other worktrees merge)
+**Branch:** current branch (in-place)
+**Phase:** 3 (all prior phases merged; execute in current branch)
 **Gaps:** GAP-13, GAP-14, GAP-16, GAP-17
 
-> **Status:** ⏳ Pending — Phase 3 (depends on all prior phases being merged)
+> **Status:** ⏳ Pending — execute in current branch (no worktree needed)
 
 ---
 
 ## bell-labs Prompt
 
 ```
-You are working in a git worktree branched from `dev` AFTER all other
-worktrees have been merged.
+You are working in the current branch. All Phase 1 and Phase 2 worktrees
+have already been merged.
 
 ## Task
 Address GAP-13, GAP-14, GAP-16, and GAP-17 from `dev-docs/spec-compliance-gaps.md`.
 
 ## Scope
-- Broad — these gaps touch 10+ files. This worktree runs last to avoid conflicts.
+- Broad — these gaps touch 10+ files. This phase runs last; all prior work is merged.
 
 ## What to do
 
@@ -43,7 +43,7 @@ GAP-14's require hoisting in the same files.
 - `render.lua` (418 lines): extract code-block navigation into `lua/ai-chat/ui/code_blocks.lua`
 
 ## Constraints
-- This worktree MUST be based on the final merged state of all other worktrees.
+- Work is done in the current branch. All prior phases are already merged.
 - Run `make test` and `make lint` after EACH gap to catch regressions early.
 - File splits must not change any public API — only internal `require` paths change.
 

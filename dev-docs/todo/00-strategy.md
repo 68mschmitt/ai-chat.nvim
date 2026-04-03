@@ -11,7 +11,7 @@
 |---|---|---|---|
 | Phase 1 | WT1, WT2, WT3, WT4 | ✅ Complete | `765be68` |
 | Phase 2 | WT5, WT6 | ✅ Complete | `904fe24` |
-| Phase 3 | WT7 | ⏳ Pending | — |
+| Phase 3 | GAP-13, 14, 16, 17 | ⏳ Pending | — |
 
 **Resolved:** 20 of 24 gaps (GAP-01 through GAP-24, excluding GAP-13, 14, 16, 17)
 **Remaining:** GAP-13 (test internals), GAP-14 (lazy requires), GAP-16 (file splitting), GAP-17 (pcall config.get)
@@ -55,11 +55,11 @@ The remaining gaps cluster into 7 conflict-free worktree groups based on which s
 | **WT5: provider-config** | GAP-06, GAP-09, GAP-10, GAP-19, GAP-22, GAP-24 | `providers/init.lua`, `config.lua`, `anthropic.lua`, `bedrock.lua`, `openai_compat.lua`, `init.lua` | High — API design, read-only proxy vs deepcopy |
 | **WT6: render-pipeline** | GAP-08, GAP-12, GAP-23 | `ui/render.lua`, `stream.lua` (1 line: finish call) | Medium — boundary design |
 
-### Phase 3 — Merge everything, then run last (broadest touch surface)
+### Phase 3 — Execute in current branch (no worktree needed)
 
-| Worktree | Gaps | Files Touched | Notes |
+| Task Group | Gaps | Files Touched | Notes |
 |---|---|---|---|
-| **WT7: code-hygiene** | GAP-13, GAP-14, GAP-16, GAP-17 | 10+ files | Must go last — touches nearly everything |
+| **Code hygiene** | GAP-13, GAP-14, GAP-16, GAP-17 | 10+ files | Phases 1–2 merged; work directly on current branch |
 
 ---
 
@@ -68,7 +68,7 @@ The remaining gaps cluster into 7 conflict-free worktree groups based on which s
 ```
 Phase 1 (parallel):   WT1, WT2, WT3, WT4  →  merge all to dev
 Phase 2 (parallel):   WT5, WT6            →  merge to dev
-Phase 3 (sequential): WT7                 →  merge to dev (rebase on final state)
+Phase 3 (in-branch):  GAP-13, 14, 16, 17 →  commit directly (no worktree)
 ```
 
 ---
@@ -84,8 +84,7 @@ git worktree add ../ai-chat-wt4-data     -b gap/data-utils
 # Phase 2 (create after phase 1 merges)
 git worktree add ../ai-chat-wt5-provider -b gap/provider-config
 git worktree add ../ai-chat-wt6-render   -b gap/render-pipeline
-# Phase 3 (create after phase 2 merges)
-git worktree add ../ai-chat-wt7-hygiene  -b gap/code-hygiene
+# Phase 3 — no worktree needed; execute in current branch
 ```
 
 ---
@@ -114,7 +113,7 @@ Each worktree has a corresponding prompt file in this directory:
 | `04-wt4-data-utils.md` | WT4 | 1 |
 | `05-wt5-provider-config.md` | WT5 | 2 |
 | `06-wt6-render-pipeline.md` | WT6 | 2 |
-| `07-wt7-code-hygiene.md` | WT7 | 3 |
+| `07-wt7-code-hygiene.md` | In-branch | 3 |
 
 ---
 
@@ -122,5 +121,5 @@ Each worktree has a corresponding prompt file in this directory:
 
 - **Phase 1 worktrees have zero shared files** — verified by file-level conflict analysis.
 - **Phase 2 has one minor overlap**: WT6 touches `stream.lua` (1 line: the `finish()` call), which WT1 refactored. Trivial merge.
-- **WT7 goes last** because GAP-14 (lazy requires) and GAP-16 (file splitting) touch nearly every file in the project. Running them after all other changes are stable avoids N-way merge conflicts.
+- **Phase 3 runs in-branch** because all prior phases are merged. No worktree overhead needed — GAP-14 (lazy requires) and GAP-16 (file splitting) touch nearly every file, but with no concurrent changes there are no merge conflicts to avoid.
 - **Each prompt explicitly lists its file scope** so bell-labs (and worker-bee) won't accidentally touch files owned by another worktree.

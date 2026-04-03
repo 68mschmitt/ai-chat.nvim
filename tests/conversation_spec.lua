@@ -94,41 +94,55 @@ describe("conversation.build_provider_messages", function()
     end)
 end)
 
-describe("conversation._truncate_to_budget", function()
-    it("does not truncate when under budget", function()
-        local messages = {
-            { role = "system", content = "system prompt" },
-            { role = "user", content = "hello" },
-            { role = "assistant", content = "hi" },
-        }
-        local dropped = conversation._truncate_to_budget(messages, 10000)
-        assert.is_nil(dropped)
+describe("conversation truncation via build_provider_messages", function()
+    it("does not truncate short conversations", function()
+        conversation.new("ollama", "llama3.2")
+        conversation.append({ role = "user", content = "hello" })
+        conversation.append({ role = "assistant", content = "hi" })
+
+        local config = require("ai-chat.config").resolve({})
+        local messages, truncated = conversation.build_provider_messages(config)
+
+        assert.is_nil(truncated, "should not truncate short conversations")
+        -- system + 2 messages
         assert.equals(3, #messages)
     end)
 
-    it("drops oldest messages first", function()
-        local messages = {
-            { role = "system", content = "system prompt" },
-            { role = "user", content = string.rep("word ", 500) }, -- ~665 tokens
-            { role = "assistant", content = string.rep("word ", 500) }, -- ~665 tokens
-            { role = "user", content = string.rep("word ", 500) }, -- ~665 tokens
-            { role = "assistant", content = "short response" }, -- ~3 tokens
-        }
-        local dropped = conversation._truncate_to_budget(messages, 700)
-        assert.truthy(dropped, "should have truncated")
-        assert.is_true(dropped > 0)
-        -- System prompt (index 1) should always be preserved
+    it("truncates when messages exceed context window", function()
+        conversation.new("ollama", "llama3.2")
+        -- Add enough messages to exceed the context window
+        for i = 1, 20 do
+            conversation.append({ role = "user", content = string.rep("word ", 500) })
+            conversation.append({ role = "assistant", content = string.rep("word ", 500) })
+        end
+
+        -- Use a small context window to force truncation
+        local config = require("ai-chat.config").resolve({
+            providers = { ollama = { host = "http://localhost:11434", context_window = 1000 } },
+        })
+        local messages, truncated = conversation.build_provider_messages(config)
+
+        assert.truthy(truncated, "should have truncated")
+        assert.is_true(truncated > 0)
+        -- System prompt should always be preserved as first message
         assert.equals("system", messages[1].role)
     end)
 
-    it("always preserves system prompt and at least one message", function()
-        local messages = {
-            { role = "system", content = string.rep("word ", 1000) },
-            { role = "user", content = "hello" },
-        }
-        local dropped = conversation._truncate_to_budget(messages, 10)
-        -- Even if budget is tiny, should keep at least system + 1 message
-        assert.equals(2, #messages)
+    it("always preserves system prompt", function()
+        conversation.new("ollama", "llama3.2")
+        conversation.append({ role = "user", content = string.rep("word ", 1000) })
+        conversation.append({ role = "assistant", content = string.rep("word ", 1000) })
+        conversation.append({ role = "user", content = "latest question" })
+
+        -- Tiny context window to force aggressive truncation
+        local config = require("ai-chat.config").resolve({
+            providers = { ollama = { host = "http://localhost:11434", context_window = 100 } },
+        })
+        local messages, truncated = conversation.build_provider_messages(config)
+
+        -- Must still have at least system prompt + 1 message
+        assert.is_true(#messages >= 2)
+        assert.equals("system", messages[1].role)
     end)
 end)
 

@@ -10,6 +10,11 @@
 local M = {}
 
 local errors = require("ai-chat.errors")
+local spinner = require("ai-chat.ui.spinner")
+local render = require("ai-chat.ui.render")
+local log = require("ai-chat.util.log")
+local models = require("ai-chat.models")
+local costs = require("ai-chat.util.costs")
 
 --- State machine transition diagram:
 ---   idle        --send-->          streaming
@@ -92,7 +97,7 @@ function M.cancel()
         fn()
     end
 
-    require("ai-chat.ui.spinner").stop()
+    spinner.stop()
     return true
 end
 
@@ -125,9 +130,6 @@ end
 ---@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }
 ---@param send_hrtime number?  High-resolution time when send started (for TTFT measurement)
 function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
-    local spinner = require("ai-chat.ui.spinner")
-    local render = require("ai-chat.ui.render")
-
     local gen = state.generation
     spinner.start(ui_state.chat_winid)
 
@@ -152,7 +154,7 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
                 first_chunk = false
                 local uv = vim.uv or vim.loop
                 local ttft_ms = (uv.hrtime() - send_hrtime) / 1e6
-                require("ai-chat.util.log").info(string.format("TTFT: %.0fms", ttft_ms))
+                log.info(string.format("TTFT: %.0fms", ttft_ms))
                 state.ttft_ms = ttft_ms -- save for on_done
             else
                 first_chunk = false
@@ -175,12 +177,12 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
             -- GAP-08: Pre-compute cost display for render
             local cost_display = nil
             if response.usage then
-                local registry = require("ai-chat.models")
-                local reg_pricing = registry.get_pricing(opts.provider_name, opts.model)
-                local cost =
-                    require("ai-chat.util.costs").estimate(opts.provider_name, opts.model, response.usage, reg_pricing)
-                if cost > 0 then
-                    cost_display = string.format("$%.4f", cost)
+                local reg_pricing = models.get_pricing(opts.provider_name, opts.model)
+                cost_display = costs.estimate(opts.provider_name, opts.model, response.usage, reg_pricing)
+                if cost_display > 0 then
+                    cost_display = string.format("$%.4f", cost_display)
+                else
+                    cost_display = nil
                 end
             end
 
