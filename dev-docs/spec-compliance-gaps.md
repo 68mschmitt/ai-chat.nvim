@@ -240,4 +240,4 @@ The following areas fully comply with their respective specs:
 
 | Gap | Resolved date | Reference |
 |-----|---------------|-----------|
-| *(none yet)* | | |
+| GAP-04 | 2026-04-04 | Removed all UI knowledge from `stream.lua`. Spinner lifecycle moved to `pipeline.lua` via event listeners. `stream.cancel()` fires `AiChatResponseCancelled` event; pipeline listens on Done/Error/Cancelled to stop spinner. Render factory passed as `begin_response` argument. |

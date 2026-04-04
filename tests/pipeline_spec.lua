@@ -349,6 +349,15 @@ describe("pipeline integration", function()
     describe("stream retry with error classification", function()
         local stream = require("ai-chat.stream")
 
+        -- Helper: noop render factory for testing
+        local function noop_begin_response()
+            return {
+                append = function() end,
+                finish = function() end,
+                error = function() end,
+            }
+        end
+
         after_each(function()
             -- Ensure stream state is clean
             pcall(stream.cancel)
@@ -375,7 +384,7 @@ describe("pipeline integration", function()
                 end,
             }
 
-            stream.send(mock_provider, {}, { model = "test" }, { chat_bufnr = buf, chat_winid = win }, {
+            stream.send(mock_provider, {}, { model = "test" }, noop_begin_response, {
                 on_done = function() end,
                 on_error = function(err)
                     error_count = error_count + 1

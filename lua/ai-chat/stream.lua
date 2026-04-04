@@ -1,8 +1,7 @@
 --- ai-chat.nvim — Stream orchestration
 --- Manages the lifecycle of a streaming response: start, cancel, retry.
---- Calls providers and UI (render, spinner) but receives conversation data
---- as arguments. Calls back to the coordinator via callbacks for
---- history/costs/winbar updates.
+--- Receives a render factory as an argument. Has no UI dependencies.
+--- Fires AiChatResponseCancelled on cancel.
 ---
 --- Retry policy: only errors classified as RETRYABLE by errors.lua are
 --- retried. FATAL and UNKNOWN errors fail immediately.
@@ -10,8 +9,6 @@
 local M = {}
 
 local errors = require("ai-chat.errors")
-local spinner = require("ai-chat.ui.spinner")
-local render = require("ai-chat.ui.render")
 local log = require("ai-chat.util.log")
 local models = require("ai-chat.models")
 local costs = require("ai-chat.util.costs")
@@ -97,44 +94,47 @@ function M.cancel()
         fn()
     end
 
-    spinner.stop()
+    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "AiChatResponseCancelled" })
     return true
 end
 
 --- Send a chat request with streaming. Handles the full lifecycle:
---- spinner start, provider call, chunk rendering, completion, error/retry.
+--- provider call, chunk rendering, completion, error/retry.
 ---
 ---@param provider AiChatProvider  The provider module to call
 ---@param provider_messages AiChatMessage[]  Messages to send (already built)
 ---@param opts AiChatProviderOpts  Provider options (model, temperature, etc.)
----@param ui_state { chat_bufnr: number, chat_winid: number }  UI references
----@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }
+---@param begin_response fun(): { append: fun(text: string), finish: fun(usage: AiChatUsage, cost_display: string?), error: fun(err: AiChatError) }  Factory function to create render object
+---@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }  Callbacks for completion
 ---@param send_hrtime number?  High-resolution time when send started (for TTFT measurement)
-function M.send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+function M.send(provider, provider_messages, opts, begin_response, callbacks, send_hrtime)
     if state.phase ~= "idle" then
         vim.notify("[ai-chat] Already generating a response. Press <C-c> to cancel.", vim.log.levels.WARN)
         return
     end
 
     transition(state.phase, "send")
-    set_state({ phase = "streaming", generation = state.generation + 1, cancel_fn = function() end })
+    set_state({
+        phase = "streaming",
+        generation = state.generation + 1,
+        cancel_fn = function() end,
+    })
 
-    M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+    M._do_send(provider, provider_messages, opts, begin_response, callbacks, send_hrtime)
 end
 
 --- Internal: perform the actual send (called directly and on retry).
 ---@param provider AiChatProvider
 ---@param provider_messages AiChatMessage[]
 ---@param opts AiChatProviderOpts
----@param ui_state { chat_bufnr: number, chat_winid: number }
+---@param begin_response fun(): { append: fun(text: string), finish: fun(usage: AiChatUsage, cost_display: string?), error: fun(err: AiChatError) }  Factory function to create render object
 ---@param callbacks { on_done: fun(response: AiChatResponse, ttft_ms: number?), on_error: fun(err: AiChatError) }
 ---@param send_hrtime number?  High-resolution time when send started (for TTFT measurement)
-function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+function M._do_send(provider, provider_messages, opts, begin_response, callbacks, send_hrtime)
     local gen = state.generation
-    spinner.start(ui_state.chat_winid)
 
-    -- Create stream renderer
-    local stream_render = render.begin_response(ui_state.chat_bufnr)
+    -- Create stream renderer for this attempt
+    local stream_render = begin_response()
 
     -- Guard callbacks: enforce (on_chunk* · (on_done | on_error)) cardinality.
     -- After the first terminal callback (on_done or on_error), all further
@@ -172,7 +172,6 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
             local ttft = state.ttft_ms
             transition(state.phase, "done")
             set_state({ phase = "idle", generation = gen })
-            spinner.stop()
 
             -- GAP-08: Pre-compute cost display for render
             local cost_display = nil
@@ -198,8 +197,6 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
                 return
             end
             terminal_fired = true
-
-            spinner.stop()
 
             -- Check if we should auto-retry (centralized classification)
             if errors.is_retryable(err) and state.phase == "streaming" then
@@ -245,7 +242,7 @@ function M._do_send(provider, provider_messages, opts, ui_state, callbacks, send
                                     cancel_fn = function() end,
                                     retry_count = retry_count,
                                 })
-                                M._do_send(provider, provider_messages, opts, ui_state, callbacks, send_hrtime)
+                                M._do_send(provider, provider_messages, opts, begin_response, callbacks, send_hrtime)
                             end
                         end)
                     )
