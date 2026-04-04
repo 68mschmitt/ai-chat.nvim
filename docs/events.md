@@ -162,6 +162,24 @@ vim.api.nvim_create_autocmd("User", {
 })
 ```
 
+### AiChatResponseCancelled
+
+Fired when a streaming response is cancelled by the user (via `<C-c>` or panel close/clear while streaming).
+
+**Location:** `lua/ai-chat/stream.lua` — `M.cancel()`
+
+**Payload:** *(none)*
+
+**Example:**
+```lua
+vim.api.nvim_create_autocmd("User", {
+    pattern = "AiChatResponseCancelled",
+    callback = function()
+        print("Response cancelled")
+    end,
+})
+```
+
 ### AiChatResponseError
 
 Fired when a response fails with an error.
@@ -251,6 +269,13 @@ vim.api.nvim_create_autocmd("User", {
     pattern = "AiChatResponseError",
     callback = function()
         ai_status = "✗ Error"
+    end,
+})
+
+vim.api.nvim_create_autocmd("User", {
+    pattern = "AiChatResponseCancelled",
+    callback = function()
+        ai_status = "⊘ Cancelled"
     end,
 })
 

@@ -9,6 +9,7 @@ local M = {}
 
 local providers = require("ai-chat.providers")
 local render = require("ai-chat.ui.render")
+local spinner = require("ai-chat.ui.spinner")
 local input_mod = require("ai-chat.ui.input")
 local history = require("ai-chat.history")
 local models = require("ai-chat.models")
@@ -124,47 +125,77 @@ function M.send(text, ui_state, deps)
         return
     end
 
-    stream.send(provider, provider_messages, {
-        model = conv.get_model(),
-        provider_name = provider_name,
-        provider_config = config.providers[provider_name] or {},
-        temperature = config.chat.temperature,
-        max_tokens = config.chat.max_tokens,
-        thinking = config.chat.thinking,
-    }, {
-        chat_bufnr = ui_state.chat_bufnr,
-        chat_winid = ui_state.chat_winid,
-    }, {
-        on_done = function(response, ttft_ms)
-            deps.update_winbar_fn()
-            conv.append({
-                role = "assistant",
-                content = response.content,
-                usage = response.usage,
-                model = response.model,
-                thinking = response.thinking,
-                timestamp = os.time(),
-            })
-            if response.usage then
-                local reg_pricing = models.get_pricing(provider_name, conv.get_model())
-                costs.record(provider_name, conv.get_model(), response.usage, reg_pricing)
-            end
-            if config.history.enabled then
-                history.save(conv.get())
-            end
-            pcall(vim.api.nvim_exec_autocmds, "User", {
-                pattern = "AiChatResponseDone",
-                data = { response = response, usage = response.usage, ttft_ms = ttft_ms },
-            })
-        end,
-        on_error = function(err)
-            log.error("Provider error", err)
-            pcall(vim.api.nvim_exec_autocmds, "User", {
-                pattern = "AiChatResponseError",
-                data = { error = err },
-            })
-        end,
-    }, send_hrtime)
+    -- Start spinner — pipeline owns spinner lifecycle
+    spinner.start(ui_state.chat_winid)
+
+    -- Wire spinner stop to all terminal response events.
+    -- One augroup per send — cleared on each new send, deleted on terminal.
+    local spinner_group = vim.api.nvim_create_augroup("ai-chat-spinner", { clear = true })
+    local function stop_spinner_and_cleanup()
+        spinner.stop()
+        pcall(vim.api.nvim_del_augroup_by_id, spinner_group)
+    end
+    for _, pattern in ipairs({ "AiChatResponseDone", "AiChatResponseError", "AiChatResponseCancelled" }) do
+        vim.api.nvim_create_autocmd("User", {
+            group = spinner_group,
+            pattern = pattern,
+            once = true,
+            callback = function()
+                stop_spinner_and_cleanup()
+            end,
+        })
+    end
+
+    -- Create render factory — stream calls this for each attempt (including retries)
+    local begin_response = function()
+        return render.begin_response(ui_state.chat_bufnr)
+    end
+
+    stream.send(
+        provider,
+        provider_messages,
+        {
+            model = conv.get_model(),
+            provider_name = provider_name,
+            provider_config = config.providers[provider_name] or {},
+            temperature = config.chat.temperature,
+            max_tokens = config.chat.max_tokens,
+            thinking = config.chat.thinking,
+        },
+        begin_response,
+        {
+            on_done = function(response, ttft_ms)
+                deps.update_winbar_fn()
+                conv.append({
+                    role = "assistant",
+                    content = response.content,
+                    usage = response.usage,
+                    model = response.model,
+                    thinking = response.thinking,
+                    timestamp = os.time(),
+                })
+                if response.usage then
+                    local reg_pricing = models.get_pricing(provider_name, conv.get_model())
+                    costs.record(provider_name, conv.get_model(), response.usage, reg_pricing)
+                end
+                if config.history.enabled then
+                    history.save(conv.get())
+                end
+                pcall(vim.api.nvim_exec_autocmds, "User", {
+                    pattern = "AiChatResponseDone",
+                    data = { response = response, usage = response.usage, ttft_ms = ttft_ms },
+                })
+            end,
+            on_error = function(err)
+                log.error("Provider error", err)
+                pcall(vim.api.nvim_exec_autocmds, "User", {
+                    pattern = "AiChatResponseError",
+                    data = { error = err },
+                })
+            end,
+        },
+        send_hrtime
+    )
 end
 
 return M

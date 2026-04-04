@@ -13,6 +13,15 @@ describe("stream callback guard", function()
         return { chat_bufnr = buf, chat_winid = win }, buf
     end
 
+    -- Helper: noop render factory for testing
+    local function noop_begin_response()
+        return {
+            append = function() end,
+            finish = function() end,
+            error = function() end,
+        }
+    end
+
     after_each(function()
         pcall(stream.cancel)
     end)
@@ -37,7 +46,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function(resp)
                 done_count = done_count + 1
             end,
@@ -74,7 +83,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function()
                 done_count = done_count + 1
             end,
@@ -114,7 +123,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function()
                 done_count = done_count + 1
             end,
@@ -149,7 +158,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function()
                 done_count = done_count + 1
             end,
@@ -195,7 +204,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function(resp)
                 done_count = done_count + 1
             end,
@@ -223,7 +232,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function() end,
             on_error = function() end,
         })
@@ -231,7 +240,7 @@ describe("stream callback guard", function()
         assert.is_true(stream.is_active())
 
         -- Second send should be rejected (no error, just notify)
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function() end,
             on_error = function() end,
         })
@@ -256,7 +265,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function() end,
             on_error = function() end,
         })
@@ -282,7 +291,7 @@ describe("stream callback guard", function()
             end,
         }
 
-        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, ui, {
+        stream.send(mock_provider, {}, { model = "test", provider_name = "test" }, noop_begin_response, {
             on_done = function() end,
             on_error = function()
                 error_count = error_count + 1
