@@ -107,6 +107,15 @@ function M.build_anthropic_body(messages, opts, provider_config)
         body.system = system_prompt
     end
 
+    if opts.thinking then
+        local budget = provider_config.thinking_budget or 10000
+        body.thinking = {
+            type = "enabled",
+            budget_tokens = budget,
+        }
+        body.anthropic_beta = { "interleaved-thinking-2025-05-14" }
+    end
+
     return body
 end
 
@@ -118,7 +127,8 @@ end
 ---@param accumulate fun(text: string)
 ---@param usage table
 ---@param mark_errored fun()
-function M.decode_bedrock_frames(buffer, callbacks, accumulate, usage, mark_errored)
+---@param thinking_acc table    Thinking accumulator { text = "", current_block_type = nil }
+function M.decode_bedrock_frames(buffer, callbacks, accumulate, usage, mark_errored, thinking_acc)
     -- Extract event frames: event{"bytes":"base64data..."}
     for event_json in buffer:gmatch("event(%b{})") do
         local ok, frame = pcall(vim.json.decode, event_json)
@@ -128,7 +138,7 @@ function M.decode_bedrock_frames(buffer, callbacks, accumulate, usage, mark_erro
             if decode_ok and decoded then
                 local json_ok, event = pcall(vim.json.decode, decoded)
                 if json_ok and event then
-                    M.dispatch_event(event, callbacks, accumulate, usage, mark_errored)
+                    M.dispatch_event(event, callbacks, accumulate, usage, mark_errored, thinking_acc)
                 end
             end
         end
@@ -140,9 +150,17 @@ function M.decode_bedrock_frames(buffer, callbacks, accumulate, usage, mark_erro
         if ok and exc then
             mark_errored()
             local err_msg = exc.message or "Bedrock stream exception"
+            local err_code = "server"
+            if err_msg:match("[Tt]hrottle") or err_msg:match("[Rr]ate") or err_msg:match("[Qq]uota") then
+                err_code = "rate_limit"
+            elseif err_msg:match("[Tt]imeout") then
+                err_code = "timeout"
+            elseif err_msg:match("[Aa]ccess") or err_msg:match("[Ff]orbidden") then
+                err_code = "auth"
+            end
             vim.schedule(function()
                 callbacks.on_error({
-                    code = "server",
+                    code = err_code,
                     message = err_msg,
                 })
             end)
@@ -158,7 +176,8 @@ end
 ---@param accumulate fun(text: string)
 ---@param usage table
 ---@param mark_errored fun()
-function M.dispatch_event(event, callbacks, accumulate, usage, mark_errored)
+---@param thinking_acc table    Thinking accumulator { text = "", current_block_type = nil }
+function M.dispatch_event(event, callbacks, accumulate, usage, mark_errored, thinking_acc)
     local event_type = event.type
 
     if event_type == "content_block_delta" then
@@ -167,6 +186,11 @@ function M.dispatch_event(event, callbacks, accumulate, usage, mark_errored)
             accumulate(delta.text)
             vim.schedule(function()
                 callbacks.on_chunk(delta.text)
+            end)
+        elseif delta and delta.type == "thinking_delta" and delta.thinking then
+            thinking_acc.text = thinking_acc.text .. delta.thinking
+            vim.schedule(function()
+                callbacks.on_chunk(delta.thinking)
             end)
         end
     elseif event_type == "message_start" then
@@ -182,9 +206,21 @@ function M.dispatch_event(event, callbacks, accumulate, usage, mark_errored)
     elseif event_type == "message_stop" then
         -- Stream complete — handled by on_exit callback
     elseif event_type == "content_block_start" then
-        -- No action needed
+        -- Track the current block type for thinking mode
+        thinking_acc.current_block_type = event.content_block and event.content_block.type or nil
+        if thinking_acc.current_block_type == "thinking" then
+            vim.schedule(function()
+                callbacks.on_chunk("<thinking>\n")
+            end)
+        end
     elseif event_type == "content_block_stop" then
-        -- No action needed
+        -- Emit closing tag for thinking blocks
+        if thinking_acc.current_block_type == "thinking" then
+            vim.schedule(function()
+                callbacks.on_chunk("\n</thinking>\n")
+            end)
+        end
+        thinking_acc.current_block_type = nil
     elseif event_type == "ping" then
         -- Keep-alive, no action
     elseif event_type == "error" then

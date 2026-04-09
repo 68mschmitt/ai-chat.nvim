@@ -92,6 +92,7 @@ function M.chat(messages, opts, callbacks)
 
     -- Streaming state
     local accumulated_text = ""
+    local thinking_acc = { text = "", current_block_type = nil }
     local usage = { input_tokens = 0, output_tokens = 0 }
     local errored = false
     local stream_buffer = ""
@@ -120,6 +121,7 @@ function M.chat(messages, opts, callbacks)
                             message = "Bedrock connection failed: "
                                 .. tostring(err)
                                 .. " Check your network connection and AWS region configuration.",
+                            retryable = true,
                         })
                     end)
                 end
@@ -145,7 +147,8 @@ function M.chat(messages, opts, callbacks)
                 usage,
                 function()
                     errored = true
-                end
+                end,
+                thinking_acc
             )
 
             -- Trim processed content: keep only from the last unmatched position.
@@ -186,6 +189,7 @@ function M.chat(messages, opts, callbacks)
                 callbacks.on_error({
                     code = "network",
                     message = err_msg,
+                    retryable = true,
                 })
                 return
             end
@@ -203,8 +207,12 @@ function M.chat(messages, opts, callbacks)
                     then
                         err_code = "auth"
                         err_msg = "Access denied. Check that AWS_BEARER_TOKEN_BEDROCK is set and not expired."
-                    elseif err_msg:match("[Tt]hrottle") or err_msg:match("[Rr]ate") then
+                    elseif err_msg:match("[Tt]hrottle") or err_msg:match("[Rr]ate") or err_msg:match("[Qq]uota") then
                         err_code = "rate_limit"
+                    elseif err_msg:match("[Tt]imeout") then
+                        err_code = "timeout"
+                    elseif err_msg:match("[Ss]ervice.*[Uu]navailable") then
+                        err_code = "server"
                     elseif err_msg:match("[Mm]odel") and err_msg:match("[Nn]ot [Ff]ound") then
                         err_code = "model_not_found"
                     elseif err_msg:match("[Vv]alidation") then
@@ -220,6 +228,7 @@ function M.chat(messages, opts, callbacks)
 
             callbacks.on_done({
                 content = accumulated_text,
+                thinking = thinking_acc.text ~= "" and thinking_acc.text or nil,
                 usage = usage,
                 model = model,
             })
