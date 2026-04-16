@@ -37,5 +37,5 @@ jobs:
 
       - uses: anomalyco/opencode/github@latest
         with:
-          model: openai/codex-mini-latest
+          model: openai/gpt-5.3-codex
           prompt: ${{ github.event.inputs.prompt }}
