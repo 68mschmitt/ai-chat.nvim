@@ -1,0 +1,41 @@
+name: opencode
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt for OpenCode"
+        required: true
+        default: "Review the codebase and summarize the architecture in a PR comment."
+
+jobs:
+  opencode:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up OpenCode auth
+        run: |
+          mkdir -p ~/.local/share/opencode
+          cat <<EOF > ~/.local/share/opencode/auth.json
+          {
+            "openai": {
+              "type": "oauth",
+              "refresh": "${{ secrets.OPENAI_REFRESH_TOKEN }}",
+              "access": "",
+              "accountId": "${{ secrets.OPENAI_ACCOUNT_ID }}",
+              "expires": 0
+            }
+          }
+          EOF
+
+      - uses: anomalyco/opencode/github@latest
+        with:
+          model: openai/o4-mini
+          prompt: ${{ github.event.inputs.prompt }}

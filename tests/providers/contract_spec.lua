@@ -366,10 +366,7 @@ describe("provider contracts", function()
 
                 assert.is_not_nil(error_received, "should receive error")
                 assert.equals("network", error_received.code)
-                -- Note: bedrock provider does not set retryable flag on network errors (existing behavior)
-                if provider_info.name ~= "bedrock" then
-                    assert.is_true(error_received.retryable)
-                end
+                assert.is_true(error_received.retryable)
             end)
 
             -- ─── Scenario 6: Request body structure ───
