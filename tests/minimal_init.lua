@@ -13,6 +13,9 @@ vim.o.swapfile = false
 vim.o.backup = false
 vim.o.writebackup = false
 
+-- Keep test runs independent of the user's persisted provider/model choice.
+require("ai-chat.state").init(vim.fn.tempname() .. "/ai-chat-test-state")
+
 -- Load the plugin with test-safe config
 require("ai-chat").setup({
     default_provider = "ollama",

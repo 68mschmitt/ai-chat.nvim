@@ -142,7 +142,7 @@ end
 
 --- Show resolved configuration.
 function M.show_config()
-    local display_config = vim.deepcopy(config.get())
+    local display_config = config.snapshot()
     for _, pname in ipairs({ "anthropic", "openai_compat" }) do
         if display_config.providers[pname] and display_config.providers[pname].api_key then
             display_config.providers[pname].api_key = "***"

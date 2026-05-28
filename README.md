@@ -8,7 +8,7 @@ Side-panel AI chat for Neovim. Streaming responses, multiple providers, conversa
 
 ## Features
 
-- **4 providers** — Ollama (default, no API key needed), Anthropic, Amazon Bedrock, OpenAI-compatible
+- **5 providers** — Ollama (default, no API key needed), Anthropic, Amazon Bedrock, OpenAI-compatible, OpenAI Plus/Pro subscription
 - **Streaming responses** with real-time rendering
 - **Extended thinking** support (Claude) with fold/unfold and token counts
 - **Code block navigation** — jump between blocks (`]b`/`[b`), yank (`gY`), open in split (`gO`)
@@ -288,16 +288,10 @@ opts = {
 Authenticate first:
 
 ```vim
-:AiChatOpenAIAuth browser
+:AiChatAuthLogin
 ```
 
-For terminal-only environments:
-
-```vim
-:AiChatOpenAIAuth headless
-```
-
-Check or remove stored auth with `:AiChatOpenAIStatus` and `:AiChatOpenAILogout`. OAuth tokens are stored in `stdpath("data") .. "/ai-chat/auth.json"`.
+The auth command is provider-agnostic. If multiple configured providers support interactive auth setup, it asks which provider to authenticate. For OpenAI Plus/Pro it also asks whether to use browser or headless OAuth. OAuth tokens are stored in `stdpath("data") .. "/ai-chat/auth.json"`.
 
 Plus subscription models accepted by the Codex backend are allowlisted locally as: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`. Some ChatGPT UI labels such as Fast/Pro/Spark may not be accepted by the Codex backend even if shown in the web UI.
 
@@ -318,9 +312,7 @@ Plus subscription models accepted by the Codex backend are allowlisted locally a
 | `:AiChatCosts` | Show session cost summary |
 | `:AiChatKeys` | Show keybinding reference |
 | `:AiChatConfig` | Show resolved configuration |
-| `:AiChatOpenAIAuth [browser\|headless]` | Authenticate OpenAI Plus/Pro subscription |
-| `:AiChatOpenAIStatus` | Show OpenAI Plus/Pro auth status |
-| `:AiChatOpenAILogout` | Remove stored OpenAI Plus/Pro auth |
+| `:AiChatAuthLogin [provider]` | Authenticate a provider that supports interactive setup |
 
 ## Keybindings
 

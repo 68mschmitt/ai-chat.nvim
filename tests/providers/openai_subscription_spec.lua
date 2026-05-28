@@ -29,6 +29,21 @@ describe("openai_subscription provider", function()
         assert.is_function(provider.preflight)
         assert.is_function(provider.list_models)
         assert.is_function(provider.chat)
+        assert.is_function(provider.auth_login)
+        assert.is_function(provider.model_metadata)
+    end)
+
+    it("uses provider-owned model metadata", function()
+        local metadata = provider.model_metadata()
+        assert.equals("gpt-5.5", metadata[1].id)
+        assert.equals(400000, metadata[1].limit.context)
+        assert.equals(0, metadata[1].cost.input)
+    end)
+
+    it("serves subscription model metadata through the shared model registry", function()
+        local models = require("ai-chat.models")
+        assert.equals(400000, models.get_context_window("openai_subscription", "gpt-5.5"))
+        assert.equals(0, models.get_pricing("openai_subscription", "gpt-5.5").input)
     end)
 
     it("reports auth failure when no oauth token exists", function()
@@ -147,6 +162,63 @@ describe("openai_subscription provider", function()
         end)
         assert.truthy(vim.tbl_contains(captured_cmd, "Authorization: Bearer access-token"))
         assert.is_false(vim.tbl_contains(captured_cmd, "ChatGPT-Account-Id: account-123"))
+    end)
+
+    it("allows preflight when account id is absent", function()
+        store.set("openai", {
+            type = "oauth",
+            refresh = "refresh-token",
+            access = "access-token",
+            expires = os.time() * 1000 + 3600000,
+        })
+
+        local ok_result
+        provider.preflight({}, function(ok)
+            ok_result = ok
+        end)
+
+        assert.is_true(ok_result)
+    end)
+
+    it("suppresses queued callbacks after cancel", function()
+        local killed = false
+        vim.system = function(_cmd, opts, on_exit)
+            opts.stdout(
+                nil,
+                'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"late"}\n\n'
+            )
+            on_exit({ code = 0 })
+            return {
+                kill = function()
+                    killed = true
+                end,
+            }
+        end
+
+        local callback_count = 0
+        local cancel = provider.chat({ { role = "user", content = "hi" } }, { provider_config = {} }, {
+            on_chunk = function()
+                callback_count = callback_count + 1
+            end,
+            on_done = function()
+                callback_count = callback_count + 1
+            end,
+            on_error = function()
+                callback_count = callback_count + 1
+            end,
+        })
+        cancel()
+
+        local flushed = false
+        vim.schedule(function()
+            flushed = true
+        end)
+        vim.wait(1000, function()
+            return flushed
+        end)
+
+        assert.is_true(killed)
+        assert.equals(0, callback_count)
     end)
 
     it("uses completed response text when no delta events are present", function()

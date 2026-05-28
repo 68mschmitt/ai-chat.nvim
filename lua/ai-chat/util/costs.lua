@@ -16,9 +16,8 @@ local pricing = {
         ["gpt-4o-mini"] = { input = 0.15, output = 0.60 },
         ["gpt-4-turbo"] = { input = 10.00, output = 30.00 },
     },
-    -- Ollama/subscription providers and Bedrock: cost handled separately
+    -- Ollama and Bedrock: cost handled separately
     ollama = {}, -- Always $0.00
-    openai_subscription = {}, -- ChatGPT Plus/Pro subscription-backed; no API cost estimate
     bedrock = {}, -- Same as Anthropic pricing (approximately)
 }
 
@@ -36,10 +35,6 @@ local totals = {
 ---@return number  Estimated cost in USD
 function M.estimate(provider, model, usage, ext_pricing)
     -- 1. Use externally-provided pricing (resolved by coordinator)
-    if provider == "openai_subscription" then
-        return 0
-    end
-
     if ext_pricing then
         local input_cost = (usage.input_tokens / 1000000) * ext_pricing.input
         local output_cost = (usage.output_tokens / 1000000) * ext_pricing.output
@@ -82,7 +77,7 @@ function M.show()
         string.format("  Session:  $%.4f (%d requests)", totals.session, totals.session_requests),
         "",
         "Note: Costs are estimates based on published pricing.",
-        "Ollama and OpenAI Plus/Pro subscription requests are shown as $0.00.",
+        "Providers with zero pricing metadata are shown as $0.00.",
     }
 
     vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)

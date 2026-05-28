@@ -45,4 +45,13 @@ describe("openai auth", function()
         assert.is_table(auth_result)
         assert.is_nil(auth_result.accountId)
     end)
+
+    it("treats a refresh token as authenticated without requiring account id", function()
+        store.set("openai", {
+            type = "oauth",
+            refresh = "refresh-token",
+        })
+
+        assert.is_true(auth.is_authenticated())
+    end)
 end)

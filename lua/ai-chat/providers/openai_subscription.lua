@@ -9,26 +9,28 @@ local auth = require("ai-chat.auth.openai")
 local log = require("ai-chat.util.log")
 
 M.name = "openai_subscription"
+M.display_name = "OpenAI Plus/Pro"
 
-local MODELS = {
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
-    "gpt-5.2",
+local MODEL_METADATA = {
+    { id = "gpt-5.5", name = "GPT-5.5", limit = { context = 400000 }, cost = { input = 0, output = 0 } },
+    { id = "gpt-5.4", name = "GPT-5.4", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
+    { id = "gpt-5.4-mini", name = "GPT-5.4 mini", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
+    { id = "gpt-5.3-codex", name = "GPT-5.3 Codex", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
+    { id = "gpt-5.2", name = "GPT-5.2", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
 }
 
+local DEFAULT_MODEL = MODEL_METADATA[1].id
 local MODEL_SET = {}
-for _, model in ipairs(MODELS) do
-    MODEL_SET[model] = true
+for _, model in ipairs(MODEL_METADATA) do
+    MODEL_SET[model.id] = true
 end
 
 local function resolve_model(model, provider_config)
-    local requested = model or provider_config.model or MODELS[1]
+    local requested = model or provider_config.model or DEFAULT_MODEL
     if MODEL_SET[requested] then
         return requested, false
     end
-    local fallback = MODEL_SET[provider_config.model] and provider_config.model or MODELS[1]
+    local fallback = MODEL_SET[provider_config.model] and provider_config.model or DEFAULT_MODEL
     return fallback, requested
 end
 
@@ -269,17 +271,15 @@ local function parse_sse(buffer, callbacks, accumulate, usage, mark_errored, set
 end
 
 function M.validate(_config)
-    local a = auth.get()
-    if not a or a.type ~= "oauth" then
-        return false, "OpenAI Plus/Pro not authenticated. Run :AiChatOpenAIAuth browser or :AiChatOpenAIAuth headless."
+    if not auth.is_authenticated() then
+        return false, "OpenAI Plus/Pro not authenticated. Run :AiChatAuthLogin."
     end
     return true
 end
 
 function M.preflight(_provider_config, callback)
     if not auth.is_authenticated() then
-        local msg =
-            "[ai-chat] OpenAI Plus/Pro not authenticated. Run :AiChatOpenAIAuth browser or :AiChatOpenAIAuth headless."
+        local msg = "[ai-chat] OpenAI Plus/Pro not authenticated. Run :AiChatAuthLogin."
         vim.notify(msg, vim.log.levels.WARN)
         if callback then
             callback(false, msg)
@@ -292,7 +292,66 @@ function M.preflight(_provider_config, callback)
 end
 
 function M.list_models(_config, callback)
-    callback(vim.deepcopy(MODELS))
+    local ids = {}
+    for _, model in ipairs(MODEL_METADATA) do
+        ids[#ids + 1] = model.id
+    end
+    callback(ids)
+end
+
+function M.model_metadata()
+    return vim.deepcopy(MODEL_METADATA)
+end
+
+function M.auth_methods(_provider_config)
+    return { "browser", "headless" }
+end
+
+function M.auth_login(provider_config, opts, callback)
+    local method = (opts and opts.method) or "browser"
+    if method == "headless" then
+        auth.headless_login(provider_config or {}, callback)
+    else
+        auth.browser_login(provider_config or {}, callback)
+    end
+end
+
+function M.auth_status(_provider_config)
+    local current = auth.get()
+    local authenticated = auth.is_authenticated()
+    local expires = current and current.expires or nil
+    local status = {
+        supported = true,
+        authenticated = authenticated,
+        message = authenticated and "OpenAI Plus/Pro OAuth token found" or "OpenAI Plus/Pro not authenticated",
+        account_id = current and current.accountId or nil,
+        expires = expires,
+    }
+    if authenticated and (not current.accountId or current.accountId == "") then
+        status.warning = "OpenAI ChatGPT account ID missing; requests will omit the account header"
+    end
+    if authenticated and expires and expires < os.time() * 1000 then
+        status.expired = true
+    end
+    return status
+end
+
+function M.health(provider_config, context)
+    local status = M.auth_status(provider_config)
+    if status.authenticated then
+        vim.health.ok(status.message)
+        if status.account_id then
+            vim.health.ok("OpenAI ChatGPT account ID found")
+        elseif status.warning then
+            vim.health.warn(status.warning, { "Run :AiChatAuthLogin to refresh account metadata" })
+        end
+        if status.expired then
+            vim.health.warn("OpenAI Plus/Pro access token expired", { "It will be refreshed on next request" })
+        end
+    else
+        local level = context and context.is_default and "error" or "info"
+        vim.health[level](status.message, { "Run :AiChatAuthLogin" })
+    end
 end
 
 function M.chat(messages, opts, callbacks)
@@ -306,14 +365,38 @@ function M.chat(messages, opts, callbacks)
     local raw_preview = ""
     local usage = { input_tokens = 0, output_tokens = 0 }
     local errored = false
+    local terminal_fired = false
     local stream_buffer = ""
+
+    local guarded_callbacks = {
+        on_chunk = function(text)
+            if cancelled or terminal_fired then
+                return
+            end
+            callbacks.on_chunk(text)
+        end,
+        on_error = function(err)
+            if cancelled or terminal_fired then
+                return
+            end
+            terminal_fired = true
+            callbacks.on_error(err)
+        end,
+        on_done = function(response)
+            if cancelled or terminal_fired then
+                return
+            end
+            terminal_fired = true
+            callbacks.on_done(response)
+        end,
+    }
 
     auth.ensure(function(ok, current_auth_or_err)
         if cancelled then
             return
         end
         if not ok then
-            callbacks.on_error({ code = "auth", message = current_auth_or_err })
+            guarded_callbacks.on_error({ code = "auth", message = current_auth_or_err })
             return
         end
         local current_auth = current_auth_or_err
@@ -365,7 +448,7 @@ function M.chat(messages, opts, callbacks)
                 if err then
                     errored = true
                     vim.schedule(function()
-                        callbacks.on_error({
+                        guarded_callbacks.on_error({
                             code = "network",
                             message = "OpenAI subscription connection failed: " .. tostring(err),
                             retryable = true,
@@ -381,7 +464,7 @@ function M.chat(messages, opts, callbacks)
                 end
                 stream_buffer = parse_sse(
                     stream_buffer .. data,
-                    callbacks,
+                    guarded_callbacks,
                     function(text)
                         accumulated = accumulated .. text
                     end,
@@ -402,7 +485,7 @@ function M.chat(messages, opts, callbacks)
             end
             stream_buffer = parse_sse(
                 stream_buffer,
-                callbacks,
+                guarded_callbacks,
                 function(text)
                     accumulated = accumulated .. text
                 end,
@@ -420,7 +503,7 @@ function M.chat(messages, opts, callbacks)
             end
             vim.schedule(function()
                 if result.code ~= 0 then
-                    callbacks.on_error({
+                    guarded_callbacks.on_error({
                         code = "network",
                         message = "OpenAI subscription request failed (curl exit " .. result.code .. ")",
                         retryable = true,
@@ -433,13 +516,13 @@ function M.chat(messages, opts, callbacks)
                         raw_preview = raw_preview,
                         leftover = stream_buffer,
                     })
-                    callbacks.on_error({
+                    guarded_callbacks.on_error({
                         code = "server",
                         message = "OpenAI subscription returned a response format ai-chat could not parse. Run :AiChatLog and share the raw_preview.",
                     })
                     return
                 end
-                callbacks.on_done({
+                guarded_callbacks.on_done({
                     content = content,
                     usage = usage,
                     model = request_model,

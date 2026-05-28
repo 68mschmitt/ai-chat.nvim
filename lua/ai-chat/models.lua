@@ -14,7 +14,6 @@ local SOURCE_URL = "https://models.dev/api.json"
 local PROVIDER_MAP = {
     anthropic = "anthropic",
     openai_compat = "openai",
-    openai_subscription = nil, -- ChatGPT subscription-backed models are allowlisted locally
     bedrock = "amazon-bedrock",
     ollama = nil, -- Ollama discovers models locally, not from models.dev
 }
@@ -26,7 +25,6 @@ local provider_context_windows = {
     anthropic = 200000,
     bedrock = 200000,
     openai_compat = 128000,
-    openai_subscription = 128000,
 }
 
 --- Per-model context windows (in tokens).
@@ -44,11 +42,6 @@ local model_context_windows = {
     ["gpt-4o"] = 128000,
     ["gpt-4o-mini"] = 128000,
     ["gpt-4-turbo"] = 128000,
-    ["gpt-5.5"] = 400000,
-    ["gpt-5.4"] = 128000,
-    ["gpt-5.4-mini"] = 128000,
-    ["gpt-5.3-codex"] = 128000,
-    ["gpt-5.2"] = 128000,
     -- Ollama common models
     ["llama3.2"] = 4096,
     ["llama3.1"] = 128000,
@@ -68,6 +61,18 @@ local state = {
 
 --- Refresh interval in seconds (1 hour).
 local REFRESH_INTERVAL = 3600
+
+local function provider_model_metadata(provider_name)
+    local ok, providers = pcall(require, "ai-chat.providers")
+    if not ok or type(providers.model_metadata) ~= "function" then
+        return {}
+    end
+    local ok_models, provider_models = pcall(providers.model_metadata, provider_name)
+    if not ok_models or type(provider_models) ~= "table" then
+        return {}
+    end
+    return provider_models
+end
 
 -- ─── Cache paths ─────────────────────────────────────────────────────
 
@@ -182,25 +187,11 @@ end
 ---@param provider_name string  Our internal provider name (e.g., "anthropic", "bedrock")
 ---@return table[]  List of model entries from models.dev
 function M.get_models(provider_name)
-    if provider_name == "openai_subscription" then
-        return {
-            { id = "gpt-5.5", name = "GPT-5.5", limit = { context = 400000 }, cost = { input = 0, output = 0 } },
-            { id = "gpt-5.4", name = "GPT-5.4", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
-            {
-                id = "gpt-5.4-mini",
-                name = "GPT-5.4 mini",
-                limit = { context = 128000 },
-                cost = { input = 0, output = 0 },
-            },
-            {
-                id = "gpt-5.3-codex",
-                name = "GPT-5.3 Codex",
-                limit = { context = 128000 },
-                cost = { input = 0, output = 0 },
-            },
-            { id = "gpt-5.2", name = "GPT-5.2", limit = { context = 128000 }, cost = { input = 0, output = 0 } },
-        }
+    local provider_models = provider_model_metadata(provider_name)
+    if #provider_models > 0 then
+        return provider_models
     end
+
     local data = M.ensure()
     if not data then
         return {}

@@ -28,7 +28,6 @@ local ui_input = require("ai-chat.ui.input")
 local ui_chat = require("ai-chat.ui.chat")
 local lifecycle = require("ai-chat.lifecycle")
 local pickers = require("ai-chat.pickers")
-local openai_auth = require("ai-chat.auth.openai")
 
 ---@class AiChatState
 local state = {
@@ -217,7 +216,7 @@ end
 --- Get the resolved configuration (read-only copy).
 ---@return AiChatConfig
 function M.get_config()
-    return vim.deepcopy(config.get())
+    return config.snapshot()
 end
 
 --- Get the last known code buffer number.
@@ -258,46 +257,86 @@ function M.set_thinking(enabled)
     M._update_winbar()
 end
 
---- Authenticate OpenAI Plus/Pro via Codex-style OAuth.
----@param method? "browser"|"headless"
-function M.openai_auth(method)
+--- Start interactive auth setup for a provider that supports it.
+---@param provider_name? string
+function M.auth_login(provider_name)
     M._ensure_init()
-    method = method or "browser"
-    local provider_config = config.get().providers.openai_subscription or {}
-    local done = function(ok, result)
-        if ok then
-            vim.notify("[ai-chat] OpenAI Plus/Pro authenticated", vim.log.levels.INFO)
-        else
-            vim.notify("[ai-chat] OpenAI Plus/Pro auth failed: " .. tostring(result), vim.log.levels.ERROR)
+    local resolved = config.get()
+    local auth_providers = providers.auth_providers(resolved)
+
+    if #auth_providers == 0 then
+        vim.notify("[ai-chat] No configured provider supports interactive auth setup", vim.log.levels.INFO)
+        return
+    end
+
+    local function start_login(name, method)
+        local provider_config = resolved.providers[name] or {}
+        local display_name = providers.display_name(name)
+        providers.auth_login(name, provider_config, { method = method }, function(ok, result)
+            if ok then
+                vim.notify("[ai-chat] " .. display_name .. " authenticated", vim.log.levels.INFO)
+            else
+                vim.notify("[ai-chat] " .. display_name .. " auth failed: " .. tostring(result), vim.log.levels.ERROR)
+            end
+        end)
+    end
+
+    local function choose_method(name)
+        local methods = providers.auth_methods(name, resolved.providers[name] or {})
+        if #methods <= 1 then
+            start_login(name, methods[1])
+            return
         end
-    end
-    if method == "headless" then
-        openai_auth.headless_login(provider_config, done)
-    else
-        openai_auth.browser_login(provider_config, done)
-    end
-end
-
---- Show OpenAI Plus/Pro auth status.
-function M.openai_status()
-    M._ensure_init()
-    local auth = openai_auth.get()
-    if auth and auth.type == "oauth" then
-        local exp = auth.expires and os.date("%Y-%m-%d %H:%M:%S", math.floor(auth.expires / 1000)) or "unknown"
-        vim.notify(
-            "[ai-chat] OpenAI Plus/Pro authenticated; account=" .. tostring(auth.accountId) .. "; expires=" .. exp,
-            vim.log.levels.INFO
+        vim.ui.select(
+            methods,
+            { prompt = "Select auth method for " .. providers.display_name(name) .. ":" },
+            function(method)
+                if method then
+                    start_login(name, method)
+                end
+            end
         )
-    else
-        vim.notify("[ai-chat] OpenAI Plus/Pro not authenticated", vim.log.levels.WARN)
     end
-end
 
---- Remove stored OpenAI Plus/Pro auth.
-function M.openai_logout()
-    M._ensure_init()
-    openai_auth.logout()
-    vim.notify("[ai-chat] OpenAI Plus/Pro auth removed", vim.log.levels.INFO)
+    local function choose_provider()
+        if provider_name then
+            if not providers.supports_auth(provider_name) then
+                vim.notify(
+                    "[ai-chat] Provider does not support interactive auth setup: " .. provider_name,
+                    vim.log.levels.WARN
+                )
+                return
+            end
+            choose_method(provider_name)
+            return
+        end
+
+        local current_provider = conversation.get_provider()
+        if providers.supports_auth(current_provider) then
+            choose_method(current_provider)
+            return
+        end
+
+        if #auth_providers == 1 then
+            choose_method(auth_providers[1])
+            return
+        end
+
+        local labels = {}
+        for _, name in ipairs(auth_providers) do
+            labels[#labels + 1] = providers.display_name(name)
+        end
+        vim.ui.select(labels, { prompt = "Select provider to authenticate:" }, function(_, idx)
+            if idx then
+                choose_method(auth_providers[idx])
+            end
+        end)
+    end
+
+    local ok, err = pcall(choose_provider)
+    if not ok then
+        vim.notify("[ai-chat] Auth setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    end
 end
 
 -- ─── History ─────────────────────────────────────────────────────────

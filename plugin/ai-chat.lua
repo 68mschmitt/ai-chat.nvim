@@ -67,16 +67,6 @@ vim.api.nvim_create_user_command("AiChatConfig", function()
     require("ai-chat").show_config()
 end, { desc = "Show AI chat resolved configuration" })
 
-vim.api.nvim_create_user_command("AiChatOpenAIAuth", function(opts)
-    require("ai-chat").openai_auth(opts.args ~= "" and opts.args or "browser")
-end, { nargs = "?", complete = function()
-    return { "browser", "headless" }
-end, desc = "Authenticate OpenAI Plus/Pro subscription" })
-
-vim.api.nvim_create_user_command("AiChatOpenAIStatus", function()
-    require("ai-chat").openai_status()
-end, { desc = "Show OpenAI Plus/Pro auth status" })
-
-vim.api.nvim_create_user_command("AiChatOpenAILogout", function()
-    require("ai-chat").openai_logout()
-end, { desc = "Remove OpenAI Plus/Pro auth" })
+vim.api.nvim_create_user_command("AiChatAuthLogin", function(opts)
+    require("ai-chat").auth_login(opts.args ~= "" and opts.args or nil)
+end, { nargs = "?", desc = "Authenticate a provider that supports setup" })

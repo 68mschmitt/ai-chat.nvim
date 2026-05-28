@@ -177,7 +177,7 @@ end
 
 function M.is_authenticated()
     local auth = M.get()
-    return auth and auth.type == "oauth" and auth.refresh and auth.accountId ~= nil
+    return auth and auth.type == "oauth" and auth.refresh ~= nil and auth.refresh ~= ""
 end
 
 function M.refresh(callback)
@@ -260,10 +260,7 @@ end
 function M.ensure(callback)
     local auth = M.get()
     if not auth or auth.type ~= "oauth" or not auth.refresh then
-        callback(
-            false,
-            "OpenAI Plus/Pro is not authenticated. Run :AiChatOpenAIAuth browser or :AiChatOpenAIAuth headless."
-        )
+        callback(false, "OpenAI Plus/Pro is not authenticated. Run :AiChatAuthLogin.")
         return
     end
     local function finish(ok, refreshed_or_err)
