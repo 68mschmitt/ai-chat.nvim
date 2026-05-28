@@ -28,6 +28,7 @@ local ui_input = require("ai-chat.ui.input")
 local ui_chat = require("ai-chat.ui.chat")
 local lifecycle = require("ai-chat.lifecycle")
 local pickers = require("ai-chat.pickers")
+local openai_auth = require("ai-chat.auth.openai")
 
 ---@class AiChatState
 local state = {
@@ -255,6 +256,48 @@ function M.set_thinking(enabled)
     config.set("chat.thinking", enabled)
     vim.notify("[ai-chat] Thinking mode: " .. (enabled and "ON" or "OFF"), vim.log.levels.INFO)
     M._update_winbar()
+end
+
+--- Authenticate OpenAI Plus/Pro via Codex-style OAuth.
+---@param method? "browser"|"headless"
+function M.openai_auth(method)
+    M._ensure_init()
+    method = method or "browser"
+    local provider_config = config.get().providers.openai_subscription or {}
+    local done = function(ok, result)
+        if ok then
+            vim.notify("[ai-chat] OpenAI Plus/Pro authenticated", vim.log.levels.INFO)
+        else
+            vim.notify("[ai-chat] OpenAI Plus/Pro auth failed: " .. tostring(result), vim.log.levels.ERROR)
+        end
+    end
+    if method == "headless" then
+        openai_auth.headless_login(provider_config, done)
+    else
+        openai_auth.browser_login(provider_config, done)
+    end
+end
+
+--- Show OpenAI Plus/Pro auth status.
+function M.openai_status()
+    M._ensure_init()
+    local auth = openai_auth.get()
+    if auth and auth.type == "oauth" then
+        local exp = auth.expires and os.date("%Y-%m-%d %H:%M:%S", math.floor(auth.expires / 1000)) or "unknown"
+        vim.notify(
+            "[ai-chat] OpenAI Plus/Pro authenticated; account=" .. tostring(auth.accountId) .. "; expires=" .. exp,
+            vim.log.levels.INFO
+        )
+    else
+        vim.notify("[ai-chat] OpenAI Plus/Pro not authenticated", vim.log.levels.WARN)
+    end
+end
+
+--- Remove stored OpenAI Plus/Pro auth.
+function M.openai_logout()
+    M._ensure_init()
+    openai_auth.logout()
+    vim.notify("[ai-chat] OpenAI Plus/Pro auth removed", vim.log.levels.INFO)
 end
 
 -- ─── History ─────────────────────────────────────────────────────────

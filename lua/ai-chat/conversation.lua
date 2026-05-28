@@ -38,6 +38,7 @@ local provider_context_windows = {
     anthropic = 200000,
     bedrock = 200000,
     openai_compat = 128000,
+    openai_subscription = 128000,
 }
 
 --- Per-model context windows (in tokens).
@@ -55,6 +56,11 @@ local model_context_windows = {
     ["gpt-4o"] = 128000,
     ["gpt-4o-mini"] = 128000,
     ["gpt-4-turbo"] = 128000,
+    ["gpt-5.5"] = 400000,
+    ["gpt-5.4"] = 128000,
+    ["gpt-5.4-mini"] = 128000,
+    ["gpt-5.3-codex"] = 128000,
+    ["gpt-5.2"] = 128000,
     -- Ollama common models
     ["llama3.2"] = 4096,
     ["llama3.1"] = 128000,

@@ -49,7 +49,7 @@ end
 ---@return string[]
 function M.list()
     -- Ensure all built-in providers are loaded
-    local builtins = { "ollama", "anthropic", "bedrock", "openai_compat" }
+    local builtins = { "ollama", "anthropic", "bedrock", "openai_compat", "openai_subscription" }
     for _, name in ipairs(builtins) do
         pcall(M.get, name)
     end

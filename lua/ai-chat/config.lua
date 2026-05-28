@@ -76,6 +76,13 @@ M.defaults = {
             endpoint = "https://api.openai.com/v1/chat/completions",
             model = "gpt-4o",
         },
+        openai_subscription = {
+            model = "gpt-5.5",
+            callback_port = 1455,
+            auth_originator = "opencode",
+            codex_endpoint = "https://chatgpt.com/backend-api/codex/responses",
+            user_agent = "ai-chat.nvim",
+        },
     },
 
     -- UI
@@ -318,7 +325,8 @@ function M.validate(config)
         end
     else
         -- Fallback during early init when providers may not be available
-        local known = { ollama = true, anthropic = true, bedrock = true, openai_compat = true }
+        local known =
+            { ollama = true, anthropic = true, bedrock = true, openai_compat = true, openai_subscription = true }
         if not known[config.default_provider] then
             return false, "Unknown provider: " .. config.default_provider
         end

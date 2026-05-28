@@ -107,6 +107,28 @@ function M.check()
         end
     end
 
+    -- OpenAI Plus/Pro OAuth
+    if provider_name == "openai_subscription" or config.providers.openai_subscription then
+        local auth = require("ai-chat.auth.openai").get()
+        if auth and auth.type == "oauth" and auth.refresh then
+            vim.health.ok("OpenAI Plus/Pro OAuth token found")
+            if auth.accountId then
+                vim.health.ok("OpenAI ChatGPT account ID found")
+            else
+                vim.health.warn("OpenAI ChatGPT account ID missing", { "Run :AiChatOpenAIAuth browser again" })
+            end
+            if auth.expires and auth.expires < os.time() * 1000 then
+                vim.health.warn("OpenAI Plus/Pro access token expired", { "It will be refreshed on next request" })
+            end
+        else
+            local level = provider_name == "openai_subscription" and "error" or "info"
+            vim.health[level](
+                "OpenAI Plus/Pro not authenticated",
+                { "Run :AiChatOpenAIAuth browser or :AiChatOpenAIAuth headless" }
+            )
+        end
+    end
+
     -- Bedrock (aws CLI)
     if provider_name == "bedrock" or config.providers.bedrock then
         if vim.fn.executable("aws") == 1 then
