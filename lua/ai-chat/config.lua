@@ -51,6 +51,22 @@ local function unfreeze(t)
     end
 end
 
+local function plain_copy(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local out = {}
+    seen[value] = out
+    for k, v in pairs(value) do
+        out[plain_copy(k, seen)] = plain_copy(v, seen)
+    end
+    return out
+end
+
 ---@class AiChatConfig
 M.defaults = {
 
@@ -75,6 +91,13 @@ M.defaults = {
         openai_compat = {
             endpoint = "https://api.openai.com/v1/chat/completions",
             model = "gpt-4o",
+        },
+        openai_subscription = {
+            model = "gpt-5.5",
+            callback_port = 1455,
+            auth_originator = "opencode",
+            codex_endpoint = "https://chatgpt.com/backend-api/codex/responses",
+            user_agent = "ai-chat.nvim",
         },
     },
 
@@ -250,6 +273,12 @@ function M.get()
     return resolved or M.defaults
 end
 
+--- Return a mutable plain-table copy of the current config.
+---@return AiChatConfig
+function M.snapshot()
+    return plain_copy(M.get())
+end
+
 --- Update a config value at runtime (e.g., toggling thinking mode).
 --- Only works after setup() has been called.
 ---@param path string  Dot-separated path (e.g., "chat.thinking")
@@ -318,7 +347,10 @@ function M.validate(config)
         end
     else
         -- Fallback during early init when providers may not be available
-        local known = { ollama = true, anthropic = true, bedrock = true, openai_compat = true }
+        local known = {}
+        for name in pairs(M.defaults.providers) do
+            known[name] = true
+        end
         if not known[config.default_provider] then
             return false, "Unknown provider: " .. config.default_provider
         end

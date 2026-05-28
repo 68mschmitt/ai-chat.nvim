@@ -5,6 +5,7 @@
 local M = {}
 
 M.name = "ollama"
+M.display_name = "Ollama"
 
 ---@param provider_config table  Provider config from setup()
 ---@return boolean ok
@@ -200,6 +201,40 @@ function M.preflight(provider_config, callback)
             end
         end)
     end)
+end
+
+function M.health(provider_config, context)
+    if not (context and context.is_default) then
+        return
+    end
+    local host = (provider_config or {}).host or "http://localhost:11434"
+    local result = vim.system({ "curl", "-s", "--connect-timeout", "3", host .. "/api/tags" }, { text = true }):wait()
+
+    if result.code == 0 then
+        local data_ok, data = pcall(vim.json.decode, result.stdout)
+        if data_ok and data and data.models then
+            local model_names = {}
+            for _, m in ipairs(data.models) do
+                table.insert(model_names, m.name)
+            end
+            vim.health.ok(
+                "Ollama running at "
+                    .. host
+                    .. " ("
+                    .. #data.models
+                    .. " models: "
+                    .. table.concat(model_names, ", ")
+                    .. ")"
+            )
+        else
+            vim.health.ok("Ollama running at " .. host)
+        end
+    else
+        vim.health.warn("Ollama not reachable at " .. host, {
+            "Start Ollama with `ollama serve`",
+            "Or switch provider: require('ai-chat').setup({ default_provider = 'anthropic' })",
+        })
+    end
 end
 
 --- Async check if Ollama is running. Called once per session on first send.

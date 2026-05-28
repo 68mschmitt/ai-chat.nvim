@@ -77,7 +77,7 @@ function M.show()
         string.format("  Session:  $%.4f (%d requests)", totals.session, totals.session_requests),
         "",
         "Note: Costs are estimates based on published pricing.",
-        "Ollama (local) requests are always $0.00.",
+        "Providers with zero pricing metadata are shown as $0.00.",
     }
 
     vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)

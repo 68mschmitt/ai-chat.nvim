@@ -8,7 +8,7 @@ Side-panel AI chat for Neovim. Streaming responses, multiple providers, conversa
 
 ## Features
 
-- **4 providers** — Ollama (default, no API key needed), Anthropic, Amazon Bedrock, OpenAI-compatible
+- **5 providers** — Ollama (default, no API key needed), Anthropic, Amazon Bedrock, OpenAI-compatible, OpenAI Plus/Pro subscription
 - **Streaming responses** with real-time rendering
 - **Extended thinking** support (Claude) with fold/unfold and token counts
 - **Code block navigation** — jump between blocks (`]b`/`[b`), yank (`gY`), open in split (`gO`)
@@ -113,6 +113,13 @@ require("ai-chat").setup({
             endpoint = "https://api.openai.com/v1/chat/completions",
             model = "gpt-4o",
         },
+        openai_subscription = {
+            model = "gpt-5.5",
+            callback_port = 1455,
+            auth_originator = "opencode",
+            codex_endpoint = "https://chatgpt.com/backend-api/codex/responses",
+            user_agent = "ai-chat.nvim",
+        },
     },
 
     -- UI
@@ -214,6 +221,7 @@ return {
 | `anthropic` | — | `ANTHROPIC_API_KEY` env var | Extended thinking support |
 | `bedrock` | — | AWS CLI configured | Uses `aws` CLI for auth |
 | `openai_compat` | — | `OPENAI_API_KEY` env var | Works with any OpenAI-compatible API |
+| `openai_subscription` | — | ChatGPT Plus/Pro OAuth | Uses Codex-style OAuth and ChatGPT subscription backend |
 
 ### Ollama
 
@@ -266,6 +274,27 @@ opts = {
 
 Set `OPENAI_API_KEY` in your environment. Change `endpoint` for other OpenAI-compatible services.
 
+### OpenAI Plus/Pro Subscription
+
+This provider uses a Codex-style OAuth flow against `auth.openai.com` and sends requests to the ChatGPT Codex backend. It does **not** use or create an OpenAI API key, and usage is subject to ChatGPT subscription eligibility and limits.
+
+```lua
+opts = {
+    default_provider = "openai_subscription",
+    default_model = "gpt-5.5",
+}
+```
+
+Authenticate first:
+
+```vim
+:AiChatAuthLogin
+```
+
+The auth command is provider-agnostic. If multiple configured providers support interactive auth setup, it asks which provider to authenticate. For OpenAI Plus/Pro it also asks whether to use browser or headless OAuth. OAuth tokens are stored in `stdpath("data") .. "/ai-chat/auth.json"`.
+
+Plus subscription models accepted by the Codex backend are allowlisted locally as: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`. Some ChatGPT UI labels such as Fast/Pro/Spark may not be accepted by the Codex backend even if shown in the web UI.
+
 ## Commands
 
 | Command | Description |
@@ -283,6 +312,7 @@ Set `OPENAI_API_KEY` in your environment. Change `endpoint` for other OpenAI-com
 | `:AiChatCosts` | Show session cost summary |
 | `:AiChatKeys` | Show keybinding reference |
 | `:AiChatConfig` | Show resolved configuration |
+| `:AiChatAuthLogin [provider]` | Authenticate a provider that supports interactive setup |
 
 ## Keybindings
 

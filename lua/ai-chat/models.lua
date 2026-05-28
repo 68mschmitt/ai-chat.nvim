@@ -62,6 +62,18 @@ local state = {
 --- Refresh interval in seconds (1 hour).
 local REFRESH_INTERVAL = 3600
 
+local function provider_model_metadata(provider_name)
+    local ok, providers = pcall(require, "ai-chat.providers")
+    if not ok or type(providers.model_metadata) ~= "function" then
+        return {}
+    end
+    local ok_models, provider_models = pcall(providers.model_metadata, provider_name)
+    if not ok_models or type(provider_models) ~= "table" then
+        return {}
+    end
+    return provider_models
+end
+
 -- ─── Cache paths ─────────────────────────────────────────────────────
 
 --- Get the cache file path.
@@ -175,6 +187,11 @@ end
 ---@param provider_name string  Our internal provider name (e.g., "anthropic", "bedrock")
 ---@return table[]  List of model entries from models.dev
 function M.get_models(provider_name)
+    local provider_models = provider_model_metadata(provider_name)
+    if #provider_models > 0 then
+        return provider_models
+    end
+
     local data = M.ensure()
     if not data then
         return {}

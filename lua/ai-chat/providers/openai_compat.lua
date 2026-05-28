@@ -6,6 +6,7 @@
 local M = {}
 
 M.name = "openai_compat"
+M.display_name = "OpenAI-compatible"
 
 ---@param config table
 ---@return boolean ok
@@ -77,6 +78,16 @@ function M.preflight(provider_config, callback)
         if callback then
             callback(true)
         end
+    end
+end
+
+function M.health(provider_config, context)
+    local api_key = (provider_config or {}).api_key or vim.env.OPENAI_API_KEY
+    if api_key and api_key ~= "" then
+        vim.health.ok("OpenAI API key found")
+    else
+        local level = context and context.is_default and "error" or "info"
+        vim.health[level]("OpenAI API key not set", { "Set OPENAI_API_KEY environment variable" })
     end
 end
 

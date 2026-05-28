@@ -66,3 +66,7 @@ end, { desc = "Show AI chat keybindings" })
 vim.api.nvim_create_user_command("AiChatConfig", function()
     require("ai-chat").show_config()
 end, { desc = "Show AI chat resolved configuration" })
+
+vim.api.nvim_create_user_command("AiChatAuthLogin", function(opts)
+    require("ai-chat").auth_login(opts.args ~= "" and opts.args or nil)
+end, { nargs = "?", desc = "Authenticate a provider that supports setup" })

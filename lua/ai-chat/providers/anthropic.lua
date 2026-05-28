@@ -5,6 +5,7 @@
 local M = {}
 
 M.name = "anthropic"
+M.display_name = "Anthropic"
 
 ---@param config table
 ---@return boolean ok
@@ -42,6 +43,16 @@ function M.preflight(provider_config, callback)
         if callback then
             callback(true)
         end
+    end
+end
+
+function M.health(provider_config, context)
+    local api_key = (provider_config or {}).api_key or vim.env.ANTHROPIC_API_KEY
+    if api_key and api_key ~= "" then
+        vim.health.ok("Anthropic API key found")
+    else
+        local level = context and context.is_default and "error" or "info"
+        vim.health[level]("Anthropic API key not set", { "Set ANTHROPIC_API_KEY environment variable" })
     end
 end
 

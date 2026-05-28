@@ -1,10 +1,6 @@
 --- ai-chat.nvim — :checkhealth integration
 --- Validates the runtime environment: neovim version, curl, provider
 --- reachability, treesitter markdown parser, writable directories.
----
---- NOTE: Provider-specific checks here are acceptable for diagnostics (:checkhealth).
---- Ideally each provider would expose a health_check() function, but the
---- current approach is simpler and health checks are a read-only concern.
 
 local M = {}
 
@@ -35,7 +31,7 @@ function M.check()
     end
 
     local config
-    local ok_config, err = pcall(function()
+    local ok_config = pcall(function()
         config = chat.get_config()
     end)
     if not ok_config or not config or not config.default_provider then
@@ -52,69 +48,9 @@ function M.check()
     vim.health.info("Default provider: " .. provider_name)
     vim.health.info("Default model: " .. config.default_model)
 
-    -- Ollama reachability
-    if provider_name == "ollama" then
-        local host = (config.providers.ollama or {}).host or "http://localhost:11434"
-        local result = vim.system({ "curl", "-s", "--connect-timeout", "3", host .. "/api/tags" }, { text = true })
-            :wait()
-
-        if result.code == 0 then
-            local data_ok, data = pcall(vim.json.decode, result.stdout)
-            if data_ok and data and data.models then
-                local model_names = {}
-                for _, m in ipairs(data.models) do
-                    table.insert(model_names, m.name)
-                end
-                vim.health.ok(
-                    "Ollama running at "
-                        .. host
-                        .. " ("
-                        .. #data.models
-                        .. " models: "
-                        .. table.concat(model_names, ", ")
-                        .. ")"
-                )
-            else
-                vim.health.ok("Ollama running at " .. host)
-            end
-        else
-            vim.health.warn("Ollama not reachable at " .. host, {
-                "Start Ollama with `ollama serve`",
-                "Or switch provider: require('ai-chat').setup({ default_provider = 'anthropic' })",
-            })
-        end
-    end
-
-    -- Anthropic API key
-    if provider_name == "anthropic" or config.providers.anthropic then
-        local api_key = (config.providers.anthropic or {}).api_key or vim.env.ANTHROPIC_API_KEY
-        if api_key and api_key ~= "" then
-            vim.health.ok("Anthropic API key found")
-        else
-            local level = provider_name == "anthropic" and "error" or "info"
-            vim.health[level]("Anthropic API key not set", { "Set ANTHROPIC_API_KEY environment variable" })
-        end
-    end
-
-    -- OpenAI API key
-    if provider_name == "openai_compat" or config.providers.openai_compat then
-        local api_key = (config.providers.openai_compat or {}).api_key or vim.env.OPENAI_API_KEY
-        if api_key and api_key ~= "" then
-            vim.health.ok("OpenAI API key found")
-        else
-            local level = provider_name == "openai_compat" and "error" or "info"
-            vim.health[level]("OpenAI API key not set", { "Set OPENAI_API_KEY environment variable" })
-        end
-    end
-
-    -- Bedrock (aws CLI)
-    if provider_name == "bedrock" or config.providers.bedrock then
-        if vim.fn.executable("aws") == 1 then
-            vim.health.ok("AWS CLI found (for Bedrock)")
-        else
-            local level = provider_name == "bedrock" and "error" or "info"
-            vim.health[level]("AWS CLI not found", { "Install AWS CLI for Bedrock support" })
-        end
+    local providers = require("ai-chat.providers")
+    for name, provider_config in pairs(config.providers or {}) do
+        providers.health(name, provider_config, { is_default = name == provider_name })
     end
 
     -- 5. Treesitter markdown parser

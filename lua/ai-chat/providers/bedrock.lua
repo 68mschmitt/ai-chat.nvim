@@ -13,7 +13,8 @@ local codec = require("ai-chat.providers.bedrock_codec")
 
 local M = {}
 
-M.name = "Amazon Bedrock"
+M.name = "bedrock"
+M.display_name = "Amazon Bedrock"
 
 ---@param config table
 ---@return boolean ok
@@ -54,6 +55,15 @@ function M.preflight(provider_config, callback)
         if callback then
             callback(true)
         end
+    end
+end
+
+function M.health(_provider_config, context)
+    if vim.fn.executable("aws") == 1 then
+        vim.health.ok("AWS CLI found (for Bedrock)")
+    else
+        local level = context and context.is_default and "error" or "info"
+        vim.health[level]("AWS CLI not found", { "Install AWS CLI for Bedrock support" })
     end
 end
 

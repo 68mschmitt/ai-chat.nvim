@@ -88,7 +88,7 @@ function M.send(text, ui_state, deps)
     input_mod.clear()
 
     -- Build provider messages
-    local provider_messages, truncated = conv.build_provider_messages(config)
+    local provider_messages, truncated = conv.build_provider_messages(config, models.get_context_window)
     if truncated and not pstate.truncation_notified then
         pstate.truncation_notified = true
         vim.notify(

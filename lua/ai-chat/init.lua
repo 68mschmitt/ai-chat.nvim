@@ -216,7 +216,7 @@ end
 --- Get the resolved configuration (read-only copy).
 ---@return AiChatConfig
 function M.get_config()
-    return vim.deepcopy(config.get())
+    return config.snapshot()
 end
 
 --- Get the last known code buffer number.
@@ -255,6 +255,88 @@ function M.set_thinking(enabled)
     config.set("chat.thinking", enabled)
     vim.notify("[ai-chat] Thinking mode: " .. (enabled and "ON" or "OFF"), vim.log.levels.INFO)
     M._update_winbar()
+end
+
+--- Start interactive auth setup for a provider that supports it.
+---@param provider_name? string
+function M.auth_login(provider_name)
+    M._ensure_init()
+    local resolved = config.get()
+    local auth_providers = providers.auth_providers(resolved)
+
+    if #auth_providers == 0 then
+        vim.notify("[ai-chat] No configured provider supports interactive auth setup", vim.log.levels.INFO)
+        return
+    end
+
+    local function start_login(name, method)
+        local provider_config = resolved.providers[name] or {}
+        local display_name = providers.display_name(name)
+        providers.auth_login(name, provider_config, { method = method }, function(ok, result)
+            if ok then
+                vim.notify("[ai-chat] " .. display_name .. " authenticated", vim.log.levels.INFO)
+            else
+                vim.notify("[ai-chat] " .. display_name .. " auth failed: " .. tostring(result), vim.log.levels.ERROR)
+            end
+        end)
+    end
+
+    local function choose_method(name)
+        local methods = providers.auth_methods(name, resolved.providers[name] or {})
+        if #methods <= 1 then
+            start_login(name, methods[1])
+            return
+        end
+        vim.ui.select(
+            methods,
+            { prompt = "Select auth method for " .. providers.display_name(name) .. ":" },
+            function(method)
+                if method then
+                    start_login(name, method)
+                end
+            end
+        )
+    end
+
+    local function choose_provider()
+        if provider_name then
+            if not providers.supports_auth(provider_name) then
+                vim.notify(
+                    "[ai-chat] Provider does not support interactive auth setup: " .. provider_name,
+                    vim.log.levels.WARN
+                )
+                return
+            end
+            choose_method(provider_name)
+            return
+        end
+
+        local current_provider = conversation.get_provider()
+        if providers.supports_auth(current_provider) then
+            choose_method(current_provider)
+            return
+        end
+
+        if #auth_providers == 1 then
+            choose_method(auth_providers[1])
+            return
+        end
+
+        local labels = {}
+        for _, name in ipairs(auth_providers) do
+            labels[#labels + 1] = providers.display_name(name)
+        end
+        vim.ui.select(labels, { prompt = "Select provider to authenticate:" }, function(_, idx)
+            if idx then
+                choose_method(auth_providers[idx])
+            end
+        end)
+    end
+
+    local ok, err = pcall(choose_provider)
+    if not ok then
+        vim.notify("[ai-chat] Auth setup failed: " .. tostring(err), vim.log.levels.ERROR)
+    end
 end
 
 -- ─── History ─────────────────────────────────────────────────────────
