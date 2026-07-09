@@ -8,7 +8,7 @@ Side-panel AI chat for Neovim. Streaming responses, multiple providers, conversa
 
 ## Features
 
-- **5 providers** — Ollama (default, no API key needed), Anthropic, Amazon Bedrock, OpenAI-compatible, OpenAI Plus/Pro subscription
+- **6 providers** — Ollama (default, no API key needed), Unsloth Studio, Anthropic, Amazon Bedrock, OpenAI-compatible, OpenAI Plus/Pro subscription
 - **Streaming responses** with real-time rendering
 - **Extended thinking** support (Claude) with fold/unfold and token counts
 - **Code block navigation** — jump between blocks (`]b`/`[b`), yank (`gY`), open in split (`gO`)
@@ -25,7 +25,7 @@ Side-panel AI chat for Neovim. Streaming responses, multiple providers, conversa
 
 - Neovim ≥ 0.10
 - `curl`
-- One of: Ollama running locally, `ANTHROPIC_API_KEY`, AWS CLI configured (Bedrock), `OPENAI_API_KEY`
+- One of: Ollama running locally, Unsloth Studio running locally, `ANTHROPIC_API_KEY`, AWS CLI configured (Bedrock), `OPENAI_API_KEY`
 - Optional: treesitter `markdown` and `markdown_inline` parsers for code block syntax highlighting
 
 ## Installation
@@ -99,6 +99,10 @@ require("ai-chat").setup({
     providers = {
         ollama = {
             host = "http://localhost:11434",
+        },
+        unsloth_studio = {
+            endpoint = "http://localhost:8000/v1",
+            model = "unsloth",
         },
         anthropic = {
             model = "claude-sonnet-4-20250514",
@@ -218,6 +222,7 @@ return {
 | Provider | Key | Auth | Notes |
 |---|---|---|---|
 | `ollama` | Default | None | Local inference, `ollama serve` required |
+| `unsloth_studio` | — | None by default | Local Unsloth Studio AI API; supports `/v1` and Studio model API URLs |
 | `anthropic` | — | `ANTHROPIC_API_KEY` env var | Extended thinking support |
 | `bedrock` | — | AWS CLI configured | Uses `aws` CLI for auth |
 | `openai_compat` | — | `OPENAI_API_KEY` env var | Works with any OpenAI-compatible API |
@@ -234,6 +239,26 @@ opts = {
     providers = { ollama = { host = "http://localhost:11434" } },
 }
 ```
+
+### Unsloth Studio
+
+Local provider for Unsloth Studio. No API key is required by default. Model discovery calls `/models` and also retries with POST for Studio endpoints that expose model API URLs.
+
+```lua
+opts = {
+    default_provider = "unsloth_studio",
+    default_model = "unsloth",
+    providers = {
+        unsloth_studio = {
+            endpoint = "http://localhost:8000/v1",
+            -- Or use the exact API URL copied from Studio:
+            -- api_url = "http://localhost:8000/v1/chat/completions",
+        },
+    },
+}
+```
+
+If Studio returns per-model `api_url`/`url` values, those URLs are shown as model options and used as the request endpoint automatically.
 
 ### Anthropic
 

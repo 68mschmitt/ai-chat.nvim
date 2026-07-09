@@ -7,7 +7,7 @@ local M = {}
 ---@type table<string, AiChatProvider>
 local providers = {}
 
-local builtins = { "ollama", "anthropic", "bedrock", "openai_compat", "openai_subscription" }
+local builtins = { "ollama", "anthropic", "bedrock", "openai_compat", "openai_subscription", "unsloth_studio" }
 
 local function wrap_chat_contract(provider)
     if provider._chat_contract_guarded then

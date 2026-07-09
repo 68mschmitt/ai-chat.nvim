@@ -16,6 +16,7 @@ local PROVIDER_MAP = {
     openai_compat = "openai",
     bedrock = "amazon-bedrock",
     ollama = nil, -- Ollama discovers models locally, not from models.dev
+    unsloth_studio = nil, -- Unsloth Studio discovers local model API URLs
 }
 
 --- Per-provider default context windows (in tokens).
@@ -25,6 +26,7 @@ local provider_context_windows = {
     anthropic = 200000,
     bedrock = 200000,
     openai_compat = 128000,
+    unsloth_studio = 128000,
 }
 
 --- Per-model context windows (in tokens).

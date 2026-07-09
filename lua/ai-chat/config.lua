@@ -79,6 +79,10 @@ M.defaults = {
         ollama = {
             host = "http://localhost:11434",
         },
+        unsloth_studio = {
+            endpoint = "http://localhost:8888/v1",
+            model = "unsloth",
+        },
         anthropic = {
             model = "claude-sonnet-4-20250514",
             max_tokens = 16000,

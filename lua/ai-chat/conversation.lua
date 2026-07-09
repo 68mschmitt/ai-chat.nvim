@@ -38,6 +38,7 @@ local provider_context_windows = {
     anthropic = 200000,
     bedrock = 200000,
     openai_compat = 128000,
+    unsloth_studio = 128000,
 }
 
 --- Per-model context windows (in tokens).
