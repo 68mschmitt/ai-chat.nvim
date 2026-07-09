@@ -83,7 +83,8 @@ function M.render_message(bufnr, message)
         start_line = start_line + 1
 
         -- Message content
-        local content_lines = vim.split(message.content, "\n")
+        local normalized_content = thinking.normalize_content(message.content)
+        local content_lines = vim.split(normalized_content, "\n")
         vim.api.nvim_buf_set_lines(bufnr, start_line, start_line, false, content_lines)
 
         -- Apply syntax highlighting to code blocks and thinking blocks
@@ -108,6 +109,7 @@ function M.clear(bufnr)
     with_modifiable(bufnr, function()
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "" })
         vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+        thinking.clear_ranges(bufnr)
     end)
 end
 
@@ -220,6 +222,9 @@ function M.begin_response(bufnr)
                     return
                 end
 
+                local content_start = header_line + 1
+                local content_end
+
                 with_modifiable(bufnr, function()
                     -- Flush any remaining content in line_buffer
                     if line_buffer ~= "" then
@@ -238,11 +243,11 @@ function M.begin_response(bufnr)
                             virt_text_pos = "eol",
                         })
                     end
+
+                    content_end = thinking.normalize_range(bufnr, content_start, vim.api.nvim_buf_line_count(bufnr))
                 end)
 
                 -- Process thinking blocks (fold/collapse) and code blocks (highlight)
-                local content_start = header_line + 1
-                local content_end = vim.api.nvim_buf_line_count(bufnr)
                 thinking.process(bufnr, ns, content_start, content_end)
                 code_blocks.highlight(bufnr, ns, content_start, content_end)
             end)

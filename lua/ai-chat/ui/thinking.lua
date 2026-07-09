@@ -12,8 +12,10 @@ local config = require("ai-chat.config")
 local tokens = require("ai-chat.util.tokens")
 
 --- Thinking tag patterns (both <think> and <thinking> variants).
-M.open_pats = { "^<think>%s*$", "^<thinking>%s*$" }
-M.close_pats = { "^</think>%s*$", "^</thinking>%s*$" }
+M.open_pats = { "^%s*<think>%s*$", "^%s*<thinking>%s*$" }
+M.close_pats = { "^%s*</think>%s*$", "^%s*</thinking>%s*$" }
+
+local thinking_tags = { "<thinking>", "</thinking>", "<think>", "</think>" }
 
 --- Stored thinking block ranges per buffer for show/hide toggling.
 --- Keyed by bufnr → list of { open, close } (0-indexed line numbers).
@@ -50,6 +52,104 @@ end
 function M.foldtext()
     local line_count = vim.v.foldend - vim.v.foldstart - 1
     return " \u{25b6} Thinking (" .. line_count .. " lines) "
+end
+
+local function trim_trailing_horizontal_whitespace(text)
+    return text:gsub("[ \t]+$", "")
+end
+
+local function append_text(parts, text)
+    if text == "" then
+        return
+    end
+    -- Tags are emitted with their own newline. If the original text also had
+    -- a newline next to the tag, drop exactly one duplicate newline.
+    if #parts > 0 and parts[#parts]:match("\n$") and text:sub(1, 1) == "\n" then
+        text = text:sub(2)
+    end
+    if text ~= "" then
+        table.insert(parts, text)
+    end
+end
+
+local function append_standalone_tag(parts, tag)
+    if #parts > 0 then
+        parts[#parts] = trim_trailing_horizontal_whitespace(parts[#parts])
+        if parts[#parts] ~= "" and not parts[#parts]:match("\n$") then
+            table.insert(parts, "\n")
+        end
+    end
+    table.insert(parts, tag)
+    table.insert(parts, "\n")
+end
+
+local function find_next_tag(text, start_pos)
+    local best_start, best_end, best_tag
+    for _, tag in ipairs(thinking_tags) do
+        local tag_start, tag_end = text:find(tag, start_pos, true)
+        if tag_start and (not best_start or tag_start < best_start) then
+            best_start = tag_start
+            best_end = tag_end
+            best_tag = tag
+        end
+    end
+    return best_start, best_end, best_tag
+end
+
+--- Normalize literal thinking tags so the renderer can fold/style them.
+--- Local reasoning models often emit inline forms such as
+--- `<think>reasoning</think>`. The UI expects tags on their own lines.
+---@param text string
+---@return string
+function M.normalize_content(text)
+    if type(text) ~= "string" or text == "" then
+        return text
+    end
+
+    local parts = {}
+    local pos = 1
+    local found = false
+
+    while pos <= #text do
+        local tag_start, tag_end, tag = find_next_tag(text, pos)
+        if not tag_start then
+            append_text(parts, text:sub(pos))
+            break
+        end
+
+        found = true
+        append_text(parts, text:sub(pos, tag_start - 1))
+        append_standalone_tag(parts, tag)
+        pos = tag_end + 1
+    end
+
+    if not found then
+        return text
+    end
+
+    local normalized = table.concat(parts)
+    if not text:match("\n$") then
+        normalized = normalized:gsub("\n$", "")
+    end
+    return normalized
+end
+
+--- Normalize a buffer range in-place.
+---@param bufnr number
+---@param from_line number  Start line (0-indexed)
+---@param to_line number    End line (0-indexed, exclusive)
+---@return number new_to_line
+function M.normalize_range(bufnr, from_line, to_line)
+    local lines = vim.api.nvim_buf_get_lines(bufnr, from_line, to_line, false)
+    local text = table.concat(lines, "\n")
+    local normalized = M.normalize_content(text)
+    if normalized == text then
+        return to_line
+    end
+
+    local normalized_lines = vim.split(normalized, "\n", { plain = true })
+    vim.api.nvim_buf_set_lines(bufnr, from_line, to_line, false, normalized_lines)
+    return from_line + #normalized_lines
 end
 
 --- Find thinking block ranges within a line range.
@@ -141,9 +241,11 @@ function M._style_blocks(bufnr, ns, blocks)
             virt_text_pos = "overlay",
         })
 
-        -- Conceal the closing tag
+        -- Conceal the closing tag with spaces. Empty overlay text does not
+        -- cover the underlying buffer text in all Neovim versions.
+        local close_line = vim.api.nvim_buf_get_lines(bufnr, block.close, block.close + 1, false)[1] or ""
         pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, block.close, 0, {
-            virt_text = { { "", "AiChatThinking" } },
+            virt_text = { { string.rep(" ", #close_line), "AiChatThinking" } },
             virt_text_pos = "overlay",
         })
 

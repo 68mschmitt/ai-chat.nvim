@@ -78,6 +78,75 @@ describe("thinking block rendering", function()
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
 
+    it("normalizes and styles inline <think> blocks", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.bo[buf].modifiable = false
+
+        render.render_message(buf, {
+            role = "assistant",
+            content = "<think>Reasoning inline.</think>\nFinal answer.",
+            context = {},
+        })
+
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local think_line = nil
+        local close_line = nil
+        for i, line in ipairs(lines) do
+            if line:match("^<think>") then
+                think_line = i - 1
+            elseif line:match("^</think>") then
+                close_line = i - 1
+            end
+        end
+
+        assert.is_not_nil(think_line, "should place <think> on its own line")
+        assert.is_not_nil(close_line, "should place </think> on its own line")
+        assert.equals("Reasoning inline.", lines[think_line + 2])
+
+        local marks = vim.api.nvim_buf_get_extmarks(buf, ns, { think_line, 0 }, { think_line, -1 }, { details = true })
+        local has_thinking_hl = false
+        for _, mark in ipairs(marks) do
+            local details = mark[4]
+            if details.line_hl_group == "AiChatThinking" then
+                has_thinking_hl = true
+            end
+        end
+        assert(has_thinking_hl, "inline think block should be styled after normalization")
+
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("normalizes streamed inline <think> blocks on finish", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.bo[buf].modifiable = false
+
+        local stream = render.begin_response(buf)
+        stream.append("<think>Reasoning inline.</think>\nFinal answer.")
+        vim.wait(10)
+        stream.finish({ input_tokens = 10, output_tokens = 5 })
+        vim.wait(50)
+
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local found_think = false
+        local found_reasoning = false
+        local found_final = false
+        for _, line in ipairs(lines) do
+            if line == "<think>" then
+                found_think = true
+            elseif line == "Reasoning inline." then
+                found_reasoning = true
+            elseif line == "Final answer." then
+                found_final = true
+            end
+        end
+
+        assert(found_think, "should normalize streamed opening tag")
+        assert(found_reasoning, "should preserve streamed thinking content")
+        assert(found_final, "should preserve streamed final answer")
+
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
     it("applies overlay extmark to conceal opening tag", function()
         local buf = vim.api.nvim_create_buf(false, true)
         vim.bo[buf].modifiable = false
