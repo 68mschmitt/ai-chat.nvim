@@ -1,124 +1,97 @@
 # Code Conventions
 
-**Thesis:** Every convention exists to serve the reader — the person who will modify this code six months from now without the author's context. If a convention cannot be explained in terms of a concrete failure it prevents, it does not belong here.
+**Thesis:** Code is read ten times for every once it is written; every convention in this project optimizes for the reader who did not write it, at 2 AM, tracing a bug through async callbacks.
+
+*Perspectives: Brian Kernighan (clarity, simplicity, the reader is always the audience) and Linus Torvalds (pragmatism, no unnecessary abstraction, reject cleverness). Both agree that readability is the cardinal virtue. They would disagree on tone — Kernighan would explain patiently, Torvalds would reject the patch. We follow Kernighan's style in documentation and Torvalds' standard in code review: if it's not clear, it does not ship.*
 
 ---
 
 ## Principles
 
-### 1. Every module owns its state, and no one else touches it
+### 1. Every module opens with a header stating purpose and ownership
 
-**Rule:** Mutable state lives in a single `local state = {}` table at the top of the owning module. Other modules access state through public functions. Never hold a reference to another module's internal table and mutate it.
+The first lines of every `.lua` file are a doc comment block that states: what this module does, what state it owns, and what it does not touch. This is the reader's first stop when they encounter a module they didn't write.
 
-**Rationale:** State ownership is the architecture. When it breaks, symptoms appear far from the cause. The ownership map — config → `config.lua`, conversation → `conversation.lua`, streaming → `stream.lua`, UI refs → `init.lua` — is load-bearing documentation.
+**Rationale:** A programmer tracing a bug needs to know in five seconds whether they're in the right file. The header is the signpost.
 
-**Violation:** A new feature checks whether streaming is active by reading `stream.state.active` directly. A refactor of stream's internals breaks the feature silently. The right thing: call `stream.is_active()` — one line, and the dependency is through a contract, not a data structure.
+**Violation:** A module that opens with `local M = {}` and no comment. The reader must scan 200 lines to understand what this module is responsible for.
 
----
+### 2. Name functions for what they do, not how they do it
 
-### 2. Name functions for what they return or do, never for when they are called
+`conversation.append()` appends a message. `stream.cancel()` cancels a stream. `errors.classify()` classifies an error. If a function name requires a comment to explain its purpose, rename the function.
 
-**Rule:** A function extracted from a callback body is named for its effect (`finalize_response`, `append_assistant_message`), not for its trigger (`handle_done`, `process_event`). Callback *parameter names* (`on_done`, `on_chunk`) describe slots. Extracted functions describe actions.
+**Rationale:** The name is the most-read documentation for any function. A good name makes the call site self-documenting. A bad name generates comments that rot.
 
-**Rationale:** In a callback-heavy async codebase crossing four modules (pipeline → stream → provider → render), every intermediate function named `handle_X` forces the reader to read the body to understand the flow. Names like `finalize_response` or `classify_error` can be followed without opening the file.
+**Violation:** A function named `process_data()` that builds provider messages, applies truncation, and notifies the user. It should be three functions with three names, or it should be named `build_provider_messages()` if that's what it actually does.
 
-**Violation:** The `on_done` logic from `pipeline.send()` is extracted into `handle_done()`. Six months later someone sees `handle_done()` and must read the body to learn it appends to conversation, saves history, records cost, and updates the winbar.
+### 3. Error messages tell the user what happened AND what to do
 
----
+Every error message surfaced to the user must contain: (1) what went wrong, in plain language, and (2) what the user can do about it. Provider errors include the specific action: "Set ANTHROPIC_API_KEY environment variable." Network errors include: "Is Ollama running? Start it with `ollama serve`."
 
-### 3. The errored flag pattern is a concurrency contract — use it exactly or not at all
+**Rationale:** An error message that says "Request failed" wastes the user's time. An error message that says "Ollama not detected at localhost:11434. Start it with `ollama serve` or switch provider." respects it.
 
-**Rule:** In provider implementations, initialize `errored = false` at function scope. Check it before every error callback AND in the success path (`on_exit` with code 0 can arrive after a stream parser error). Set it before calling the callback, not after. This is not defensive programming — it is a correctness requirement.
+**Violation:** `callbacks.on_error({ code = "network", message = "Connection refused" })` — missing the actionable guidance. Compare with the actual codebase: `"Ollama request failed. Is Ollama running at " .. host .. "? Start it with 'ollama serve'."`.
 
-**Rationale:** `vim.system` can invoke `on_exit` after `on_stderr` has already fired. Without the flag, the UI shows two error messages, or worse, `on_done` fires after `on_error` and appends a corrupt assistant message to the conversation.
+### 4. Functions fit in one screen; modules fit in one head
 
-**Violation:** A new provider author writes the happy path first, adds error handling later, and forgets to gate `on_done` with `if errored then return end`. A malformed final SSE frame triggers `on_error`, then `on_exit` fires with code 0 and triggers `on_done`. The conversation now contains both an error and a garbage response.
+No function exceeds ~50 lines. If it does, it's doing too much. Extract the sub-operations into named functions — the names become documentation. No module exceeds ~350 lines. If it does, it owns too many concerns and should be split.
 
----
+**Rationale:** If you have to scroll to understand a function, the function is too complex to debug reliably. The screen is the unit of comprehension.
 
-### 4. One module, one file, one concern — and init.lua is the public door, not the junk drawer
+**Violation:** A 150-line function that handles SSE parsing, error classification, retry logic, and usage tracking. Each of these is a separate concern. The stream module delegates error classification to `errors.lua` and rendering to the render factory — this is the right decomposition.
 
-**Rule:** Each `init.lua` re-exports a curated public interface for its directory. It reads like a table of contents. If you are adding code to `init.lua` that is more than delegation, you need a new file. If a file grows past 300 lines, it is probably doing two things.
+### 5. No abstraction without simplification
 
-**Rationale:** `errors.lua` is 70 lines and does one thing. That is the model. At the file level, the test is: can you describe what this module does in one sentence without the word "and"?
+Every abstraction layer must make the code simpler for the reader, not just more "organized." If an abstraction adds indirection without reducing complexity, delete it. Provider adapters are justified because they absorb provider-specific complexity. A `BaseProvider` class that all adapters inherit from is not justified — it adds indirection without reducing the code in any adapter.
 
-**Violation:** Someone adds model-specific parameter validation to `providers/init.lua` — checking context windows, adjusting temperature ranges, mapping model aliases. The registry file is now 200 lines and does three things. The validation belongs in individual provider modules or a dedicated `providers/params.lua`.
+**Rationale:** Abstraction for the sake of pattern compliance is complexity masquerading as organization. The test is: can the reader understand this code faster with the abstraction or without it?
 
----
+**Violation:** Creating a `ProviderBase` metatable with default implementations that every provider overrides anyway. This adds a file and an indirection layer with zero reduction in per-provider code. The current pattern — each provider is an independent module implementing 4 functions — is simpler and just as correct.
 
-### 5. Protect the buffer with the modifiable toggle, and treat it as a transaction bracket
+### 6. Flat is better than nested
 
-**Rule:** The chat buffer is `modifiable = false` by default. Every write sets it `true` before and `false` after, treating the pair as BEGIN/COMMIT. The flag must be restored even if the write fails. Wrap buffer writes in a helper that guarantees restoration via pcall.
+Directory structure: two levels maximum (`lua/ai-chat/providers/`). Control flow: avoid nesting beyond 3 levels of indentation. If you're inside `if → for → if`, extract the inner logic into a named function.
 
-**Rationale:** This prevents the user from typing into the chat buffer and corrupting the conversation display. A code path where an error skips the reset leaves the buffer permanently modifiable — a silent, user-visible corruption.
+**Rationale:** Deep nesting, whether in files or in control flow, forces the reader to maintain a mental stack. Flat structures are scannable. Named functions replace indentation with intention.
 
-**Violation:** A new render helper checks buffer validity, sets modifiable to true, then calls `nvim_buf_set_lines`. The buffer was closed between the check and the write. The error propagates, modifiable is never reset, and the user can now type into the chat buffer. The fix: wrap the write in pcall and reset modifiable unconditionally afterward.
+**Violation:** `lua/ai-chat/providers/anthropic/streaming/sse/parser.lua` — four directory levels for one parser. The actual codebase puts the Anthropic SSE parsing inline in `anthropic.lua` because it's 30 lines and doesn't warrant a separate file, let alone a separate directory tree.
 
----
+### 7. `pcall` at boundaries, `error()` at invariants
 
-### 6. Lazy require is for breaking cycles — do not use it for startup performance
+Use `pcall` when calling Neovim APIs or external code that might fail for environmental reasons (buffer deleted, window closed, API changed). Use `error()` for programming errors that represent violated invariants — `conversation.append()` with an invalid role should never silently succeed.
 
-**Rule:** Use the lazy require pattern (`local mod; local function get_mod() ...`) only when a direct `require` at file scope would create a circular dependency. Document *why* with a comment. If there is no cycle, use a plain `require` at the top of the file.
+**Rationale:** Environmental failures are expected and must be handled gracefully. Programming errors are bugs and must be surfaced loudly so they get fixed. Mixing these two categories — swallowing programming errors with pcall, or crashing on environmental failures — produces either silent corruption or fragile plugins.
 
-**Rationale:** Neovim's `require` caches modules after first load — the second call is a table lookup. The performance difference is unmeasurable. But a lazy require buried in a helper function hides the dependency from any reader scanning the top of the file.
+**Violation:** Wrapping `conversation.append()` in pcall "just in case." If append receives invalid data, that's a bug in the caller. The error should propagate. Conversely, `vim.api.nvim_exec_autocmds` is wrapped in pcall because the autocmd may not exist — that's an environmental condition, not a bug.
 
-**Violation:** A developer adds `util/markdown.lua` and uses the lazy require pattern in `render.lua` because "that's how the codebase does it." There is no circular dependency. A future refactor that moves markdown utilities does not find all call sites by grepping for `require("ai-chat.util.markdown")` because the actual require is inside a closure.
+### 8. One formatting standard, enforced by tooling
 
----
+stylua with the project's `.stylua.toml` (120 col, 4-space indent, Unix line endings, double quotes). Formatting is not a code review discussion. Run `make format` before committing. Run `make lint` in CI. No exceptions.
 
-### 7. pcall belongs at the boundary between your code and Neovim APIs that can fail due to external state
+**Rationale:** Style debates consume engineering time with zero value. An automated formatter ends the debate permanently. The specific choices (4 spaces, 120 columns) are less important than the fact that they are consistent and enforced.
 
-**Rule:** Use `pcall` when calling buffer or window APIs on resources the user might have closed (`nvim_buf_set_lines`, `nvim_win_set_cursor`). Do not pcall your own internal functions. If internal code throws, that is a bug — surface the stack trace, do not swallow it.
-
-**Rationale:** `pcall` says "I do not know if this will work and I am prepared to swallow the failure." That is appropriate for external state you cannot predict. It is not appropriate for your own logic. Wrapping internal calls in pcall turns bugs into silent data corruption.
-
-**Violation:** Someone wraps `conversation._truncate_to_budget()` in pcall because "it might fail if the token estimator gets weird input." Now when the token estimator returns nil instead of a number, truncation silently does nothing, the payload exceeds the context window, and the API returns a 400 with no indication the real problem is three layers down.
+**Violation:** A PR that mixes tabs and spaces because the contributor didn't run stylua. This is caught by `make lint` in CI and should never reach review.
 
 ---
 
-### 8. Write error messages for the user who will read them, not the developer who wrote them
+## Violations
 
-**Rule:** Every error message that reaches the user (via `vim.notify` or the chat buffer) must include the specific failure and a concrete next step. Internal error codes (`rate_limit`, `auth`, `network`) are for retry logic — they are not for humans.
+### V1: Clever code
 
-**Rationale:** "Request failed" is useless. "Authentication failed — check that ANTHROPIC_API_KEY is set and valid" is useful. The provider knows the context; the generic error handler does not. Error messages should be written at the provider boundary where the context exists.
+Code that uses obscure Lua features, metatable tricks, or dense one-liners to save lines at the expense of readability. The reader is a tired maintainer at 2 AM, not a Lua golf competitor. If it takes more than 5 seconds to understand a line, rewrite it.
 
-**Violation:** A provider's HTTP call returns a 403. The error callback passes `{ code = "auth", message = "Forbidden" }`. The stream module sees `auth`, decides it is fatal, and shows the user "Error: Forbidden". The user has no idea whether their API key is wrong, expired, or whether they hit the wrong endpoint.
+### V2: Silent swallowing
 
----
+Using `pcall` around code that should raise errors, hiding bugs behind "defensive programming." If `conversation.append()` is called with `nil` content, that's a bug. Let it crash. Fix the caller.
 
-### 9. Dependency injection via deps tables belongs in orchestrators only — leaf modules take explicit arguments
+### V3: God modules
 
-**Rule:** Use a `deps` table parameter only in orchestration modules (`pipeline.lua`) that coordinate multiple subsystems. Leaf modules (providers, conversation, render) take explicit, named arguments. They do not receive a deps bag.
+A module that grows past 400 lines because "it's all related." `init.lua` was refactored to extract `pipeline.lua` when the send logic grew too large. This is the pattern: when a module outgrows one head, extract the coherent sub-concern.
 
-**Rationale:** `pipeline.send(text, ui_state, deps)` makes data flow visible and orchestration testable. But if this pattern spreads to leaf modules, you cannot tell what anything depends on without reading the whole function body. Explicit named parameters at the leaf level are worth more than a generic bag.
+### V4: Orphaned comments
 
-**Violation:** Someone refactors `render.append()` to take a `deps` table containing config, conversation, and ui_state. Now render — which should only know about buffers and text — has a dependency on the conversation module's data shape, blowing a hole in the architectural boundary between UI and data.
+Comments that describe what the code does instead of why. `-- Append message to conversation` above `conversation.append(message)` adds noise. Comments should explain non-obvious decisions: `-- Temperature is not allowed when thinking is enabled (Anthropic API constraint)` is valuable because the "why" is not obvious from the code.
 
----
+### V5: Abbreviations in public interfaces
 
-## Anti-Patterns
-
-### The Cargo-Cult Deep Copy
-Adding `vim.deepcopy()` to every return value "for safety" without understanding which callers actually mutate the result. Deep copies are O(n) operations. They belong at trust boundaries where external callers receive mutable state. Internal module-to-module calls that immediately serialize or read the result do not need copies — they need discipline.
-
-### The Scattered Mutable Local
-Mutable state added as `local last_error = nil` halfway through a file instead of in the module's `state` table. Not reset between tests. Not visible when scanning the module header. The symptom: test case 7 fails only when run after test case 4.
-
-### The Invisible Dependency
-A `require` buried inside a function body, undiscoverable by grepping the file header. In a codebase where most modules declare dependencies at the top, hidden requires cause refactoring tools and human readers to miss call sites.
-
-### The Swallowed Exception
-A `pcall` around internal logic that silently discards the error and continues with default behavior. The original bug becomes invisible, and the user sees a symptom (API error, corrupt display) far from the cause (nil return from a utility function).
-
-### The Vague Error Message
-An error that tells the user *what happened* ("Forbidden") without telling them *what to do about it* ("check that ANTHROPIC_API_KEY is set and valid"). The developer who writes the error handler usually tests the happy path and never reads their own error messages.
-
----
-
-## Reference: Configuration
-
-`config.resolve(opts)` deep-merges user opts with `config.defaults` using `vim.tbl_deep_extend("force", ...)`. After `setup()`, all modules call `config.get()` — never read defaults directly.
-
-**Per-project config** (`.ai-chat.lua` in cwd): only `system_prompt`, `default_provider`, `default_model`, `temperature`, and `providers.*` are applied. Keymaps, UI, log, and history settings are silently ignored from project config.
-
-`config.set("chat.thinking", true)` works at runtime via dot-path.
+Module-internal shorthand is fine (`conv`, `cfg`, `msg` in local scope). Public function names and parameter names use full words: `conversation`, `config`, `message`. The public interface is documentation; abbreviations are tax on the reader.

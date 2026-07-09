@@ -1,139 +1,108 @@
 # Testing
 
-**Thesis:** A test earns its place by giving you courage to change the code tomorrow — if it punishes refactoring instead of enabling it, delete it.
+**Thesis:** Tests exist to make change safe — they verify the contracts we promise and the invariants we depend on, nothing more, nothing less.
+
+*Perspectives: Kent Beck (TDD, test what you fear, courage to change) and Martin Fowler (test taxonomy, refactoring safety, cost of change). Both agree that tests are an economic decision: test the things where bugs are expensive. They disagree slightly on coverage philosophy — Beck tests what he fears, Fowler tests at boundaries. For this codebase, we follow Beck's instinct (test state machines and async contracts aggressively) with Fowler's structure (clear test taxonomy with contract tests as the highest-value layer).*
 
 ---
 
 ## Principles
 
-### 1. Test the boundaries where data transforms, not the wiring that connects them
+### 1. Test contracts, not implementations
 
-**Rule:** Test functions that take input and return output: conversation building, error classification, token estimation, cost calculation, config validation. Do not test that `pipeline.send()` calls modules in the right order — that is restating the implementation as an assertion.
+The provider contract test (`contract_spec.lua`) is the model for all testing in this project. It parameterizes across all four providers and verifies: validate() works, auth failures produce `code="auth"`, streaming produces chunks and usage, network failures are retryable. It does not test how each provider parses SSE — that's an implementation detail.
 
-**Rationale:** The most valuable tests in this codebase — conversation state, error classification, token/cost utilities — share a trait: they test a function that takes input and returns output. These tests are fast, deterministic, and scream when something breaks. Pipeline wiring tests break on every refactor and tell you nothing about whether the pieces work.
+**Rationale:** Implementation changes are free if the contract holds. If tests are coupled to implementation, every refactor breaks tests, and developers stop refactoring. Contract tests break only when behavior changes — which is exactly when you want them to break.
 
-**Violation:** A test that mocks `conversation.build_provider_messages`, mocks `stream.send`, mocks `render.append`, then asserts `pipeline.send()` calls them in sequence. That test breaks every time you restructure the pipeline and catches zero real bugs.
+**Violation:** A test that asserts the Anthropic provider sends exactly 7 curl arguments in a specific order. The contract is: it calls curl, it streams, it returns chunks and usage. The number of arguments is an implementation detail.
 
----
+### 2. State machines are the highest-value test targets
 
-### 2. Mock at the process boundary — vim.system — and nowhere else
+The stream lifecycle state machine has more test coverage than any other module, and it should. State machines have the most subtle bugs: illegal transitions, stale callbacks, double-terminal events, cancel-during-retry races. The `stream_guard_spec.lua` tests verify all of these.
 
-**Rule:** Every provider eventually calls `vim.system` to shell out to curl. That is the one legitimate mock point — the line between code you own and the outside world. Mocking anything else (provider internals, conversation methods, config accessors) means testing a fiction.
+**Rationale:** A bug in a state machine can corrupt the plugin's core loop — the user sends a message and gets no response, or gets two responses, or the spinner never stops. These bugs are hard to reproduce and hard to debug. Aggressive testing of the state machine prevents them.
 
-**Rationale:** When you mock `vim.system`, assert *what you sent to curl* — the JSON body structure, the headers, the URL. The provider's entire job is translation: conversation → HTTP request → response → callbacks. If you only assert "on_done was called," you miss bugs in the translation.
+**Violation:** Adding a new stream phase without adding transition tests for every event in that phase. If the phase exists, every legal and illegal transition from that phase must be tested.
 
-**Violation:** A provider test mocks `vim.system` to return canned success and only asserts `on_done_was_called == true`. That test passes even if the system prompt is in the wrong place (Anthropic rejects this), or temperature is sent with thinking mode on (Anthropic rejects this too). The translation is where the bugs live.
+### 3. Mock at the boundary, never in the middle
 
----
+Mock `vim.system` to simulate provider behavior. Mock the filesystem for state persistence tests. Never mock internal modules — if `pipeline.lua` needs a conversation module, give it the real `conversation.lua`. Internal mocks create tests that pass when the code is broken.
 
-### 3. Test through public APIs — never call underscore-prefixed internal functions in tests
+**Rationale:** The boundary between the plugin and the outside world (network, filesystem, Neovim API) is where non-determinism enters. Mock there. Internal module interactions are deterministic — test them with real modules or don't test them at all.
 
-**Rule:** If `_truncate_to_budget` is an implementation detail of `build_provider_messages`, test it through `build_provider_messages`. If you cannot exercise a code path through the public function, that is a design signal — either the path is dead or the module's API is too narrow.
+**Violation:** Mocking `conversation.build_provider_messages()` inside a pipeline test. If the pipeline test needs messages, let conversation build them. Mocking it hides bugs where pipeline and conversation disagree about the message format.
 
-**Rationale:** Testing internal functions couples your tests to the implementation. When you refactor internals — splitting a function, changing a strategy — tests break even though behavior is unchanged. The test suite becomes a reason not to refactor, which is the opposite of its purpose.
+### 4. Test in the real environment
 
-**Violation:** `conversation_spec.lua` tests `_truncate_to_budget` directly. If you later change the truncation strategy or split the function differently, those tests break even though `build_provider_messages` still returns correct results. Test the contract: given a message list exceeding the budget, the returned messages fit, the system prompt is preserved, and the most recent messages are kept.
+Tests run inside headless Neovim (`nvim --headless`), not in a standalone Lua interpreter. This means tests exercise real `vim.api`, real `vim.system`, real `vim.json`. The test environment IS the production environment minus the terminal.
 
----
+**Rationale:** A test that passes in vanilla Lua but fails in Neovim is worse than no test — it provides false confidence. Neovim's Lua runtime has specific behaviors (vim.schedule, vim.wait, buffer APIs) that a standalone interpreter cannot replicate.
 
-### 4. Never test Neovim's API — test your decisions about what to tell Neovim's API
+**Violation:** Running tests with `lua` or `luajit` directly. These tests cannot call `vim.api`, cannot create buffers, and cannot test anything that matters about a Neovim plugin.
 
-**Rule:** You do not need to verify that `nvim_buf_set_lines` puts lines in a buffer. Test that your module *decides* to set the right lines, in the right order, with the right metadata. For UI modules too tightly coupled to the editor API, make them thinner until the logic is extractable — then test the logic.
+### 5. Each test file owns one concern
 
-**Rationale:** Your `thinking_spec` gets this right — it creates a real buffer, fills it with content, then tests whether `find_blocks` identifies the right line ranges. It tests your logic, not Neovim's buffer implementation. Full UI tests ("does the split open at the right width?") test Neovim's window management, not your code.
+`conversation_spec.lua` tests conversation state management. `stream_guard_spec.lua` tests stream callback cardinality. `config_spec.lua` tests configuration resolution and validation. `contract_spec.lua` tests the provider contract. Tests do not cross concern boundaries.
 
-**Violation:** A test opens the chat panel, calls `nvim_win_get_width()`, resizes the terminal, and checks again. You are testing Neovim's window layout engine. When it fails in CI because headless Neovim reports different dimensions, you waste an afternoon on something that was never your bug.
+**Rationale:** When a test fails, the filename tells you where the bug is. If `config_spec.lua` fails, the bug is in config resolution, not in provider streaming. Clear ownership makes failures actionable.
 
----
+**Violation:** A test in `conversation_spec.lua` that also verifies the provider got the right curl arguments. That's a provider contract test — it belongs in `contract_spec.lua`.
 
-### 5. Every provider must pass an identical contract test suite
+### 6. Write the test BEFORE the fix
 
-**Rule:** Write one parameterized test suite that runs against each provider with `vim.system` mocked to return provider-appropriate responses. The contract is: given valid config, `validate` returns true. Given an auth failure response, `chat` calls `on_error` with `code = "auth"`. Given a streamed response, `on_chunk` fires and `on_done` receives the assembled result.
+When a bug is found, the first step is writing a failing test that reproduces it. The test goes in the appropriate spec file. Then the fix is written. Then the test passes. The test stays forever — it's a regression guard.
 
-**Rationale:** Four providers implementing the same interface is a textbook case for contract testing. If someone adds a fifth provider, they should not have to reverse-engineer what to test by reading four separate test files. If the contract evolves, updating one shared suite catches inconsistencies across all providers.
+**Rationale:** A bug without a test will recur. A test written after the fix might not actually test the bug — it might test the fix, which is a different thing. Writing the test first ensures it fails for the right reason.
 
-**Violation:** Provider tests are bespoke per-provider with different assertion patterns. A new error code is tested for Anthropic but not Bedrock. The contract divergence is invisible until a user hits the untested path.
+**Violation:** Fixing a stream cancellation race condition and writing no test. The bug will return when someone refactors the state machine, because no test guards the specific transition.
 
----
+### 7. Isolate test state completely
 
-### 6. Guard every async assertion with a timeout check — treat a timeout as a skip, not a failure
+Every `before_each` starts with a clean state: fresh config resolution, fresh conversation, saved/restored environment variables, temp directories for filesystem tests. Every `after_each` tears down: restore `vim.system`, restore env vars, delete temp files.
 
-**Rule:** For any test involving `vim.schedule` or timers, use `vim.wait` with a timeout. If the timeout fires, skip the assertion rather than failing. Log when a timeout skip occurs so you can detect tests that are always skipping.
+**Rationale:** Test order dependence is the most insidious testing bug. A test that passes alone but fails in a suite (or vice versa) is worse than no test. Complete isolation prevents this category entirely.
 
-**Rationale:** In headless Neovim, `vim.schedule` callbacks and timer-based retries are genuinely nondeterministic. A test that flakes in CI is worse than no test — it teaches the team to ignore red builds. The existing `if result ~= nil then assert...` pattern is correct. Make it a principle, not a convention someone discovered.
-
-**Violation:** A stream retry test asserts `retry_count == 2` after `vim.wait(500, ...)`. On a fast machine it passes. In CI under load, the timer has not fired, `vim.wait` times out, and the assertion fails. The developer re-runs CI, it passes, they merge. Within a month, the team has a habit of re-running failures.
+**Violation:** A state test that writes to `~/.local/share/ai-chat/state.json` instead of a temp directory. It reads state from a previous test run and produces non-deterministic results.
 
 ---
 
-### 7. Test error paths more thoroughly than happy paths
+## What to Test
 
-**Rule:** The happy path — user sends message, gets response — is exercised every time someone uses the plugin. If it breaks, someone notices in seconds. Error paths — rate limits, network timeouts, auth failures, model not found — are exercised rarely and break silently. They need more test coverage, not less.
+| Target | Test type | Example |
+|---|---|---|
+| Provider contracts | Parameterized contract test | `contract_spec.lua`: validate, auth error, streaming, network error, request body |
+| Stream state machine | Behavioral/state tests | `stream_guard_spec.lua`: cardinality guard, cancel safety, phase transitions |
+| Conversation invariants | Unit tests | `conversation_spec.lua`: append validation, truncation, restore with bad data |
+| Config resolution | Unit tests | `config_spec.lua`: defaults, overrides, deep merge, validation |
+| Persisted state | Round-trip tests | `state_spec.lua`: save/load, corrupt file handling |
+| Error classification | Unit tests | `pipeline_spec.lua`: retryable vs fatal categorization |
 
-**Rationale:** The boundary between "retry this" and "stop and tell the user" is where real damage happens. Every canonical error code must have a test verifying its classification. Every provider must have tests for its error-mapping logic. The retryable/fatal distinction is not a nice-to-have — it determines whether the plugin hammers a failing API or surfaces a clear message.
+## What NOT to Test
 
-**Violation:** A new error code `context_length_exceeded` is added, classified as retryable because "the server said 429-ish." No test. The plugin now retries the same too-long request three times before failing. One assertion would have caught it: `assert.is_false(errors.is_retryable("context_length_exceeded"))`.
-
----
-
-### 8. Use real filesystems and real buffers — mock only the network
-
-**Rule:** The filesystem and Neovim buffer API are fast, deterministic, and available in headless mode. Write to real tmpdirs. Create real buffers. Mock only `vim.system` (the network boundary). Everything else, use the real thing.
-
-**Rationale:** Mocking `vim.fn.writefile` hides bugs — your test passes even if JSON serialization produces invalid output, because the mock never tried to write it. The real filesystem catches that. Real buffers catch modifiable-flag bugs. The only thing you cannot control in a test is the network. Mock that. Use everything else.
-
-**Violation:** Mocking `vim.fn.readfile` in store tests "to avoid filesystem dependency." The test passes even if the JSON includes non-UTF8 bytes that would fail in production. The real filesystem would have caught it.
-
----
-
-## Anti-Patterns
-
-### The Wiring Test
-A test that mocks every dependency of an orchestrator and asserts they were called in sequence. It restates the implementation as an assertion, breaks on every refactor, and catches no logic bugs. If you feel compelled to write a wiring test, the module is probably doing too much — extract the logic into a testable pure function.
-
-### The Implementation-Coupled Test
-Calling `M._internal_function()` directly in a test. When the implementation changes, the test breaks even though behavior is correct. Tests should exercise the public contract. If a code path is unreachable through public functions, the path is dead code.
-
-### The Flaky Async Test
-An assertion after `vim.wait` without a guard for timeout. It passes on fast machines, fails on slow ones, and teaches the team to ignore CI failures. Always guard: `if result ~= nil then assert... end`.
-
-### The UI Pixel Test
-Asserting on exact buffer contents, extmark positions, or window dimensions. These tests mirror the render implementation and break on any visual change. They punish the kind of change that should be cheapest.
-
-### The Happy-Path-Only Suite
-A test file that verifies the success case for every function but tests zero error paths. The happy path gets exercised naturally. Error paths are where the untested bugs hide.
+| Skip | Why |
+|---|---|
+| UI rendering details | Buffer line content changes with every design tweak. Test the render contract (begin_response returns append/finish/error), not the specific lines written. |
+| Exact curl arguments | Implementation detail. The contract is: the provider calls curl and streams. How many headers it sends is not a contract. |
+| Private `_functions` | Functions prefixed with `_` are internal. Test through the public interface. If a private function is complex enough to need its own test, it should be a public function in a utility module. |
+| Highlight groups | Declarative definitions that link to Neovim built-ins. No logic to test. |
+| vim.ui.select interactions | User-facing pickers depend on the Neovim UI framework. Test the data preparation (picker items), not the picker display. |
 
 ---
 
-## Reference: Test Harness
+## Violations
 
-Tests use a **zero-dependency custom harness** (`tests/harness.lua`):
+### V1: Tests coupled to implementation
 
-```lua
-describe("group", function()
-    before_each(fn)
-    it("case", function()
-        assert.equals(expected, actual)
-        assert.is_true(val)
-        assert.is_nil(val)
-        assert.has_no.errors(fn)
-        assert.is_not.equals(a, b)
-    end)
-end)
-```
+A test that breaks when you refactor internal code without changing behavior. The fix is: test through the public contract, not through internal function calls.
 
-`describe`/`it`/`assert` are injected as globals by `tests/runner.lua` — do **not** `require` the harness in spec files.
+### V2: Non-deterministic tests
 
-To mock `vim.system` (used by all provider HTTP calls):
+Tests that depend on timing, network access, or filesystem state from previous runs. Use `vim.wait()` with explicit conditions for async tests. Use temp directories for filesystem tests. Never depend on real network access.
 
-```lua
-local original_system = vim.system
-after_each(function() vim.system = original_system end)
+### V3: Test coverage theater
 
-vim.system = function(cmd, opts, on_exit)
-    on_exit({ code = 0 })
-    return { kill = function() end }
-end
-```
+Adding tests for trivial getters, highlight definitions, or simple table lookups to inflate coverage numbers. Every test should guard against a bug that would matter if it shipped.
 
-For async tests that use `vim.wait`, always guard assertions with `if result ~= nil then` because `vim.wait` may time out in CI.
+### V4: Missing regression tests
+
+Fixing a bug without adding a test. The bug will return. The person who re-introduces it will not know it was a bug before. The test is the institutional memory.
